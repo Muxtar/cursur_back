@@ -1,7 +1,9 @@
 package config
 
 import (
+	"net/url"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -24,31 +26,62 @@ type Config struct {
 
 func Load() *Config {
 	// Railway uses different variable names, so we check both
-	// For PostgreSQL: Railway uses PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
-	// But we also support POSTGRES_HOST, POSTGRES_PORT, etc.
-	postgresHost := getEnv("POSTGRES_HOST", "")
+	// Railway sometimes provides DATABASE_URL as a single connection string
+	// Format: postgresql://user:password@host:port/database
+	
+	var postgresHost, postgresPort, postgresUser, postgresPass, postgresDB string
+	
+	// First, check if DATABASE_URL is provided (Railway sometimes uses this)
+	databaseURL := getEnv("DATABASE_URL", "")
+	if databaseURL != "" {
+		// Parse DATABASE_URL
+		parsed, err := url.Parse(databaseURL)
+		if err == nil && parsed.Scheme == "postgres" || parsed.Scheme == "postgresql" {
+			postgresHost = parsed.Hostname()
+			postgresPort = parsed.Port()
+			if postgresPort == "" {
+				postgresPort = "5432"
+			}
+			postgresUser = parsed.User.Username()
+			postgresPass, _ = parsed.User.Password()
+			postgresDB = strings.TrimPrefix(parsed.Path, "/")
+		}
+	}
+	
+	// If DATABASE_URL didn't provide values, check individual variables
 	if postgresHost == "" {
-		postgresHost = getEnv("PGHOST", "localhost")
+		postgresHost = getEnv("POSTGRES_HOST", "")
+		if postgresHost == "" {
+			postgresHost = getEnv("PGHOST", "localhost")
+		}
 	}
 	
-	postgresPort := getEnv("POSTGRES_PORT", "")
 	if postgresPort == "" {
-		postgresPort = getEnv("PGPORT", "5432")
+		postgresPort = getEnv("POSTGRES_PORT", "")
+		if postgresPort == "" {
+			postgresPort = getEnv("PGPORT", "5432")
+		}
 	}
 	
-	postgresUser := getEnv("POSTGRES_USER", "")
 	if postgresUser == "" {
-		postgresUser = getEnv("PGUSER", "postgres")
+		postgresUser = getEnv("POSTGRES_USER", "")
+		if postgresUser == "" {
+			postgresUser = getEnv("PGUSER", "postgres")
+		}
 	}
 	
-	postgresPass := getEnv("POSTGRES_PASSWORD", "")
 	if postgresPass == "" {
-		postgresPass = getEnv("PGPASSWORD", "postgres")
+		postgresPass = getEnv("POSTGRES_PASSWORD", "")
+		if postgresPass == "" {
+			postgresPass = getEnv("PGPASSWORD", "postgres")
+		}
 	}
 	
-	postgresDB := getEnv("POSTGRES_DB", "")
 	if postgresDB == "" {
-		postgresDB = getEnv("PGDATABASE", "chat_app")
+		postgresDB = getEnv("POSTGRES_DB", "")
+		if postgresDB == "" {
+			postgresDB = getEnv("PGDATABASE", "chat_app")
+		}
 	}
 	
 	// For MongoDB: Railway uses MONGO_URL or MONGODB_URI
