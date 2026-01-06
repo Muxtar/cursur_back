@@ -1,0 +1,12 @@
+# Backend Railway Configuration
+# IMPORTANT: In Railway dashboard, set Root Directory to "back-end"
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "./main"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+

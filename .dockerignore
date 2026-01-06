@@ -1,0 +1,11 @@
+*.md
+.git
+.gitignore
+.env
+.env.local
+*.log
+uploads/*
+!uploads/.gitkeep
+
+
+
