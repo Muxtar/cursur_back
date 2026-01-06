@@ -23,18 +23,52 @@ type Config struct {
 }
 
 func Load() *Config {
+	// Railway uses different variable names, so we check both
+	// For PostgreSQL: Railway uses PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
+	// But we also support POSTGRES_HOST, POSTGRES_PORT, etc.
+	postgresHost := getEnv("POSTGRES_HOST", "")
+	if postgresHost == "" {
+		postgresHost = getEnv("PGHOST", "localhost")
+	}
+	
+	postgresPort := getEnv("POSTGRES_PORT", "")
+	if postgresPort == "" {
+		postgresPort = getEnv("PGPORT", "5432")
+	}
+	
+	postgresUser := getEnv("POSTGRES_USER", "")
+	if postgresUser == "" {
+		postgresUser = getEnv("PGUSER", "postgres")
+	}
+	
+	postgresPass := getEnv("POSTGRES_PASSWORD", "")
+	if postgresPass == "" {
+		postgresPass = getEnv("PGPASSWORD", "postgres")
+	}
+	
+	postgresDB := getEnv("POSTGRES_DB", "")
+	if postgresDB == "" {
+		postgresDB = getEnv("PGDATABASE", "chat_app")
+	}
+	
+	// For MongoDB: Railway uses MONGO_URL or MONGODB_URI
+	mongoURI := getEnv("MONGODB_URI", "")
+	if mongoURI == "" {
+		mongoURI = getEnv("MONGO_URL", "mongodb://localhost:27017")
+	}
+	
 	return &Config{
 		Port:          getEnv("PORT", "8080"),
-		MongoDBURI:    getEnv("MONGODB_URI", "mongodb://localhost:27017"),
-		MongoDBName:   getEnv("MONGODB_DB", "chat_app"),
-		RedisHost:     getEnv("REDIS_HOST", "localhost"),
+		MongoDBURI:    mongoURI,
+		MongoDBName:   getEnv("MONGODB_DB", getEnv("MONGO_DATABASE", "chat_app")),
+		RedisHost:     getEnv("REDIS_HOST", getEnv("REDIS_URL", "localhost")),
 		RedisPort:     getEnv("REDIS_PORT", "6379"),
 		RedisPassword: getEnv("REDIS_PASSWORD", ""),
-		PostgresHost:  getEnv("POSTGRES_HOST", "localhost"),
-		PostgresPort:  getEnv("POSTGRES_PORT", "5432"),
-		PostgresUser:  getEnv("POSTGRES_USER", "postgres"),
-		PostgresPass:  getEnv("POSTGRES_PASSWORD", "postgres"),
-		PostgresDB:    getEnv("POSTGRES_DB", "chat_app"),
+		PostgresHost:  postgresHost,
+		PostgresPort:  postgresPort,
+		PostgresUser:  postgresUser,
+		PostgresPass:  postgresPass,
+		PostgresDB:    postgresDB,
 		JWTSecret:     getEnv("JWT_SECRET", "your-secret-key"),
 		JWTExpiration: getEnv("JWT_EXPIRATION", "24h"),
 		UploadDir:     getEnv("UPLOAD_DIR", "./uploads"),

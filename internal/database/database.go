@@ -72,13 +72,46 @@ func Initialize(cfg *config.Config) *Database {
 		db.Redis = nil
 	}
 
-	// Initialize PostgreSQL
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
-		cfg.PostgresHost, cfg.PostgresUser, cfg.PostgresPass, cfg.PostgresDB, cfg.PostgresPort)
-	postgresDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Fatal("Failed to connect to PostgreSQL:", err)
+	// Initialize PostgreSQL (with retries for Railway deployment)
+	maxRetries := 5
+	var postgresDB *gorm.DB
+	var lastErr error
+	
+	for i := 0; i < maxRetries; i++ {
+		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+			cfg.PostgresHost, cfg.PostgresUser, cfg.PostgresPass, cfg.PostgresDB, cfg.PostgresPort)
+		
+		postgresDB, lastErr = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if lastErr != nil {
+			if i < maxRetries-1 {
+				waitTime := time.Duration(i+1) * time.Second
+				log.Printf("PostgreSQL connection attempt %d/%d failed, retrying in %v...", i+1, maxRetries, waitTime)
+				log.Printf("PostgreSQL connection error: %v", lastErr)
+				log.Printf("PostgreSQL config: host=%s, port=%s, user=%s, db=%s", 
+					cfg.PostgresHost, cfg.PostgresPort, cfg.PostgresUser, cfg.PostgresDB)
+				time.Sleep(waitTime)
+				continue
+			}
+		} else {
+			log.Println("PostgreSQL connected successfully")
+			lastErr = nil
+			break
+		}
 	}
+	
+	if lastErr != nil {
+		log.Printf("ERROR: Failed to connect to PostgreSQL after %d attempts: %v", maxRetries, lastErr)
+		log.Println("ERROR: PostgreSQL is required for this application to function properly.")
+		log.Println("")
+		log.Println("To fix this issue:")
+		log.Println("1. Add PostgreSQL service in Railway: 'New' > 'Database' > 'Add PostgreSQL'")
+		log.Println("2. Connect PostgreSQL service to your backend service")
+		log.Println("3. Railway will automatically set POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB")
+		log.Println("4. Or manually set these environment variables in Railway dashboard")
+		log.Println("")
+		log.Fatal("Cannot start application without PostgreSQL connection")
+	}
+	
 	db.Postgres = postgresDB
 
 	// Auto-migrate tables
