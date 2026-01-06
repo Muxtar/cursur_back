@@ -49,20 +49,35 @@ func main() {
 	hub := websocket.NewHub()
 	go hub.Run()
 
+	// Set Gin mode (release for production, debug for development)
+	ginMode := os.Getenv("GIN_MODE")
+	if ginMode == "" {
+		// Default to release mode in production (Railway), debug in local
+		if os.Getenv("RAILWAY_ENVIRONMENT") != "" || os.Getenv("RAILWAY_SERVICE_NAME") != "" {
+			gin.SetMode(gin.ReleaseMode)
+		} else {
+			gin.SetMode(gin.DebugMode)
+		}
+	} else {
+		gin.SetMode(ginMode)
+	}
+
 	// Setup router
 	r := gin.Default()
 
 	// Trusted proxies configuration (to avoid trusting all proxies by default)
+	// This removes the Gin warning about trusting all proxies
 	trustedProxiesEnv := os.Getenv("TRUSTED_PROXIES")
 	if trustedProxiesEnv == "" {
 		// If not provided, do not trust any proxy (safer default, removes warning)
-		if err := r.SetTrustedProxies(nil); err != nil {
-			log.Fatalf("Failed to set trusted proxies: %v", err)
+		// Use empty slice instead of nil for better compatibility
+		if err := r.SetTrustedProxies([]string{}); err != nil {
+			log.Printf("Warning: Failed to set trusted proxies: %v", err)
 		}
 	} else {
 		trusted := splitAndTrim(trustedProxiesEnv, ",")
 		if err := r.SetTrustedProxies(trusted); err != nil {
-			log.Fatalf("Failed to set trusted proxies: %v", err)
+			log.Printf("Warning: Failed to set trusted proxies: %v", err)
 		}
 	}
 
