@@ -29,9 +29,13 @@ func splitAndTrim(s, sep string) []string {
 }
 
 func main() {
-	// Load environment variables
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found")
+	// Load environment variables (only in development, Railway uses environment variables directly)
+	// Check if we're in development mode (not in Railway/production)
+	if os.Getenv("RAILWAY_ENVIRONMENT") == "" && os.Getenv("RAILWAY_SERVICE_NAME") == "" {
+		if err := godotenv.Load(); err != nil {
+			// Silently ignore in production, only log in development
+			log.Println("No .env file found (this is normal in production)")
+		}
 	}
 
 	// Load configuration

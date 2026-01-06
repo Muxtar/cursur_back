@@ -40,9 +40,11 @@ func (h *TypingHandler) SetTyping(c *gin.Context) {
 		return
 	}
 
-	// Store typing indicator in Redis (expires in 5 seconds)
+	// Store typing indicator in Redis (expires in 5 seconds) - if available
 	key := "typing:" + chatID.Hex() + ":" + userIDObj.Hex()
-	h.db.Redis.Set(context.Background(), key, req.Type, 5*time.Second)
+	if h.db.Redis != nil {
+		h.db.Redis.Set(context.Background(), key, req.Type, 5*time.Second)
+	}
 
 	// Broadcast via WebSocket
 	// This would be handled by WebSocket hub
@@ -59,6 +61,11 @@ func (h *TypingHandler) GetTyping(c *gin.Context) {
 	}
 
 	// Get all typing indicators for this chat
+	if h.db.Redis == nil {
+		c.JSON(http.StatusOK, gin.H{"typing": []interface{}{}})
+		return
+	}
+	
 	pattern := "typing:" + chatID.Hex() + ":*"
 	keys, err := h.db.Redis.Keys(context.Background(), pattern).Result()
 	if err != nil {

@@ -64,9 +64,13 @@ Bu back-end projesi Railway'de ayrı bir servis olarak deploy edilmelidir.
    PORT=8080
    MONGODB_URI=your-mongodb-connection-string
    MONGODB_DB=chat_app
+   
+   # Redis (Optional - set REDIS_ENABLED=false to disable)
+   REDIS_ENABLED=true
    REDIS_HOST=your-redis-host
    REDIS_PORT=6379
    REDIS_PASSWORD=your-redis-password
+   
    POSTGRES_HOST=your-postgres-host
    POSTGRES_PORT=5432
    POSTGRES_USER=your-postgres-user
@@ -79,7 +83,12 @@ Bu back-end projesi Railway'de ayrı bir servis olarak deploy edilmelidir.
    CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com,https://www.your-frontend-domain.com
    ```
    
-   **ÖNEMLİ:** `CORS_ALLOWED_ORIGINS` değişkenine front-end domain'inizi ekleyin. 
+   **ÖNEMLİ NOTLAR:**
+   - `CORS_ALLOWED_ORIGINS` değişkenine front-end domain'inizi ekleyin.
+   - **Redis opsiyoneldir**. Eğer Redis servisi kurulu değilse, `REDIS_ENABLED=false` olarak ayarlayın
+   - Redis olmadan da uygulama çalışır, ancak bazı özellikler sınırlı olur (QR kod cache, verification code, typing indicators)
+   - Railway'de Redis servisi eklemek isterseniz, Railway dashboard'dan "New" > "Database" > "Add Redis" ile ekleyebilirsiniz
+   - Redis bağlantısı başarısız olursa, uygulama 5 kez deneyecek ve sonra Redis olmadan devam edecek 
    - GoDaddy domain'inizi front-end'e bağladıktan sonra buraya ekleyin
    - Örnek: `https://yourdomain.com,https://www.yourdomain.com`
    - Birden fazla domain varsa virgülle ayırın

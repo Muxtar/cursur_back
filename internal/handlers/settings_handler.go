@@ -628,11 +628,13 @@ func (h *SettingsHandler) ClearCache(c *gin.Context) {
 
 	// Clear Redis cache for user
 	ctx := context.Background()
-	pattern := "user:" + userIDObj.Hex() + ":*"
-	keys, err := h.db.Redis.Keys(ctx, pattern).Result()
-	if err == nil {
-		for _, key := range keys {
-			h.db.Redis.Del(ctx, key)
+	if h.db.Redis != nil {
+		pattern := "user:" + userIDObj.Hex() + ":*"
+		keys, err := h.db.Redis.Keys(ctx, pattern).Result()
+		if err == nil {
+			for _, key := range keys {
+				h.db.Redis.Del(ctx, key)
+			}
 		}
 	}
 

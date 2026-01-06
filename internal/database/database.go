@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"time"
 
 	"chat-backend/internal/config"
 
@@ -30,14 +32,44 @@ func Initialize(cfg *config.Config) *Database {
 	}
 	db.MongoDB = mongoClient.Database(cfg.MongoDBName)
 
-	// Initialize Redis
-	db.Redis = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-		Password: cfg.RedisPassword,
-		DB:       0,
-	})
-	if err := db.Redis.Ping(context.Background()).Err(); err != nil {
-		log.Fatal("Failed to connect to Redis:", err)
+	// Initialize Redis (optional - will retry with exponential backoff)
+	redisEnabled := os.Getenv("REDIS_ENABLED")
+	if redisEnabled != "false" {
+		db.Redis = redis.NewClient(&redis.Options{
+			Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
+			Password: cfg.RedisPassword,
+			DB:       0,
+		})
+		
+		// Try to connect with retries
+		maxRetries := 5
+		var lastErr error
+		for i := 0; i < maxRetries; i++ {
+			if err := db.Redis.Ping(context.Background()).Err(); err != nil {
+				lastErr = err
+				if i < maxRetries-1 {
+					waitTime := time.Duration(i+1) * time.Second
+					log.Printf("Redis connection attempt %d/%d failed, retrying in %v...", i+1, maxRetries, waitTime)
+					time.Sleep(waitTime)
+					continue
+				}
+			} else {
+				log.Println("Redis connected successfully")
+				lastErr = nil
+				break
+			}
+		}
+		
+		if lastErr != nil {
+			log.Printf("WARNING: Failed to connect to Redis after %d attempts: %v", maxRetries, lastErr)
+			log.Println("WARNING: Application will continue without Redis. Some features may be limited.")
+			log.Println("WARNING: To disable Redis completely, set REDIS_ENABLED=false")
+			// Set Redis to nil so we can check for it later
+			db.Redis = nil
+		}
+	} else {
+		log.Println("Redis is disabled (REDIS_ENABLED=false)")
+		db.Redis = nil
 	}
 
 	// Initialize PostgreSQL

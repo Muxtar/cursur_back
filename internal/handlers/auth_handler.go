@@ -123,8 +123,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Store QR data in Redis for quick lookup
-	h.db.Redis.Set(context.Background(), "qr:"+qrData, userID.Hex(), 0)
+	// Store QR data in Redis for quick lookup (if Redis is available)
+	if h.db.Redis != nil {
+		h.db.Redis.Set(context.Background(), "qr:"+qrData, userID.Hex(), 0)
+	}
 
 	// Generate token
 	token, err := utils.GenerateToken(userID)
@@ -211,9 +213,11 @@ func (h *AuthHandler) SendCode(c *gin.Context) {
 	}
 	code := fmt.Sprintf("%06d", n.Int64())
 
-	// Store code in Redis with 5 minute expiration
+	// Store code in Redis with 5 minute expiration (if Redis is available)
 	key := "verify_code:" + req.PhoneNumber
-	h.db.Redis.Set(context.Background(), key, code, 5*time.Minute)
+	if h.db.Redis != nil {
+		h.db.Redis.Set(context.Background(), key, code, 5*time.Minute)
+	}
 
 	// TODO: Send SMS via Twilio here
 	// For now, we'll return the code in development mode
@@ -235,6 +239,10 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 
 	// Get code from Redis
 	key := "verify_code:" + req.PhoneNumber
+	if h.db.Redis == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Redis is not available. Please configure Redis or set REDIS_ENABLED=false"})
+		return
+	}
 	storedCode, err := h.db.Redis.Get(context.Background(), key).Result()
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired code"})
@@ -264,8 +272,10 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 		return
 	}
 
-	// Delete code from Redis
-	h.db.Redis.Del(context.Background(), key)
+	// Delete code from Redis (if available)
+	if h.db.Redis != nil {
+		h.db.Redis.Del(context.Background(), key)
+	}
 
 	// Generate token
 	token, err := utils.GenerateToken(user.ID)
@@ -331,8 +341,10 @@ func (h *AuthHandler) RegisterWithCode(c *gin.Context) {
 		return
 	}
 
-	// Delete code from Redis
-	h.db.Redis.Del(context.Background(), key)
+	// Delete code from Redis (if available)
+	if h.db.Redis != nil {
+		h.db.Redis.Del(context.Background(), key)
+	}
 
 	// Generate QR code
 	userID := primitive.NewObjectID()
@@ -364,8 +376,10 @@ func (h *AuthHandler) RegisterWithCode(c *gin.Context) {
 		return
 	}
 
-	// Store QR data in Redis
-	h.db.Redis.Set(context.Background(), "qr:"+qrData, userID.Hex(), 0)
+	// Store QR data in Redis (if available)
+	if h.db.Redis != nil {
+		h.db.Redis.Set(context.Background(), "qr:"+qrData, userID.Hex(), 0)
+	}
 
 	// Generate token
 	token, err := utils.GenerateToken(userID)
