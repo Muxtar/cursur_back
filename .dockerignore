@@ -1,11 +1,36 @@
-*.md
+# Git
 .git
 .gitignore
+
+# Environment
 .env
 .env.local
+.env.*.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
 *.log
+
+# Build artifacts
+main
+chat-backend
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+
+# Uploads (will be in volume)
 uploads/*
-!uploads/.gitkeep
-
-
-

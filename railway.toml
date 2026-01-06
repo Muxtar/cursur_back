@@ -3,10 +3,18 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
+# Alternative: Use docker-compose.yml for all services
+# builder = "DOCKERFILE"
+# dockerfilePath = "docker-compose.yml"
 
 [deploy]
 startCommand = "./main"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
+
+# Note: For Railway, you can use docker-compose.yml by:
+# 1. Setting Root Directory to "back-end"
+# 2. Railway will automatically detect docker-compose.yml
+# 3. All services (postgres, mongodb, redis, backend) will be deployed
 
 
