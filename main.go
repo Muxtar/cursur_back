@@ -52,6 +52,20 @@ func main() {
 	// Setup router
 	r := gin.Default()
 
+	// Trusted proxies configuration (to avoid trusting all proxies by default)
+	trustedProxiesEnv := os.Getenv("TRUSTED_PROXIES")
+	if trustedProxiesEnv == "" {
+		// If not provided, do not trust any proxy (safer default, removes warning)
+		if err := r.SetTrustedProxies(nil); err != nil {
+			log.Fatalf("Failed to set trusted proxies: %v", err)
+		}
+	} else {
+		trusted := splitAndTrim(trustedProxiesEnv, ",")
+		if err := r.SetTrustedProxies(trusted); err != nil {
+			log.Fatalf("Failed to set trusted proxies: %v", err)
+		}
+	}
+
 	// CORS configuration - Read allowed origins from environment variable
 	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
 	if allowedOrigins == "" {
