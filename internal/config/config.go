@@ -22,6 +22,10 @@ type Config struct {
 	JWTExpiration string
 	UploadDir    string
 	MaxFileSize  int64
+	TwilioAccountSID string
+	TwilioAuthToken  string
+	TwilioPhoneNumber string
+	TwilioEnabled     bool
 }
 
 func Load() *Config {
@@ -90,6 +94,10 @@ func Load() *Config {
 		mongoURI = getEnv("MONGO_URL", "mongodb://localhost:27017")
 	}
 	
+	// Twilio configuration
+	twilioEnabled := getEnv("TWILIO_ENABLED", "false")
+	twilioEnabledBool := twilioEnabled == "true" || twilioEnabled == "1"
+	
 	return &Config{
 		Port:          getEnv("PORT", "8080"),
 		MongoDBURI:    mongoURI,
@@ -106,6 +114,10 @@ func Load() *Config {
 		JWTExpiration: getEnv("JWT_EXPIRATION", "24h"),
 		UploadDir:     getEnv("UPLOAD_DIR", "./uploads"),
 		MaxFileSize:   10485760, // 10MB
+		TwilioAccountSID:  getEnv("TWILIO_ACCOUNT_SID", ""),
+		TwilioAuthToken:   getEnv("TWILIO_AUTH_TOKEN", ""),
+		TwilioPhoneNumber: getEnv("TWILIO_PHONE_NUMBER", ""),
+		TwilioEnabled:      twilioEnabledBool,
 	}
 }
 

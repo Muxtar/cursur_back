@@ -110,7 +110,7 @@ func main() {
 	}))
 
 	// Setup routes
-	router.SetupRoutes(r, db, hub)
+	router.SetupRoutes(r, db, hub, cfg)
 
 	port := os.Getenv("PORT")
 	if port == "" {

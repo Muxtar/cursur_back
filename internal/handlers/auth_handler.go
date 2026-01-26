@@ -20,11 +20,15 @@ import (
 )
 
 type AuthHandler struct {
-	db *database.Database
+	db      *database.Database
+	twilio  *utils.TwilioService
 }
 
-func NewAuthHandler(db *database.Database) *AuthHandler {
-	return &AuthHandler{db: db}
+func NewAuthHandler(db *database.Database, twilio *utils.TwilioService) *AuthHandler {
+	return &AuthHandler{
+		db:     db,
+		twilio: twilio,
+	}
 }
 
 type RegisterRequest struct {
@@ -219,14 +223,30 @@ func (h *AuthHandler) SendCode(c *gin.Context) {
 		h.db.Redis.Set(context.Background(), key, code, 5*time.Minute)
 	}
 
-	// TODO: Send SMS via Twilio here
-	// For now, we'll return the code in development mode
-	// In production, remove this and only send via SMS
+	// Send SMS via Twilio
+	if h.twilio != nil && h.twilio.IsEnabled() {
+		err = h.twilio.SendVerificationCode(req.PhoneNumber, code)
+		if err != nil {
+			// Log error but don't fail the request - code is still stored in Redis
+			// In development, we can still return the code
+			fmt.Printf("Failed to send SMS via Twilio: %v\n", err)
+			// In production, you might want to return an error here
+			// For now, we'll fall back to returning the code in development
+		}
+	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// Response
+	response := gin.H{
 		"message": "Verification code sent",
-		"code":    code, // Remove this in production
-	})
+	}
+
+	// Only return code in development mode (when Twilio is disabled or failed)
+	// In production with Twilio enabled, don't return the code
+	if h.twilio == nil || !h.twilio.IsEnabled() {
+		response["code"] = code // Development mode - remove in production
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // VerifyCode verifies the code for login

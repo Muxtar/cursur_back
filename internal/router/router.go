@@ -1,26 +1,31 @@
 package router
 
 import (
+	"chat-backend/internal/config"
 	"chat-backend/internal/database"
 	"chat-backend/internal/handlers"
 	"chat-backend/internal/middleware"
+	"chat-backend/internal/utils"
 	"chat-backend/internal/websocket"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub) {
+func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *config.Config) {
 	// Health check endpoint
 	r.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+
+	// Initialize Twilio service
+	twilioService := utils.NewTwilioService(cfg)
 
 	api := r.Group("/api/v1")
 	
 	// Auth routes
 	auth := api.Group("/auth")
 	{
-		authHandler := handlers.NewAuthHandler(db)
+		authHandler := handlers.NewAuthHandler(db, twilioService)
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login", authHandler.Login)
 		auth.GET("/qr/:user_id", authHandler.GetQRCode)
