@@ -33,19 +33,26 @@ func Load() *Config {
 		}
 	}
 	
-	// Log MongoDB URI (mask password for security)
+	// Log MongoDB URI (mask password for security) - only for logging, don't modify original
 	mongoURILog := mongoURI
 	if strings.Contains(mongoURILog, "@") {
-		// Mask password in connection string
+		// Mask password in connection string for logging
 		if u, err := url.Parse(mongoURILog); err == nil && u.User != nil {
 			if _, hasPass := u.User.Password(); hasPass {
 				maskedUser := url.UserPassword(u.User.Username(), "***")
 				u.User = maskedUser
-				mongoURILog = u.String()
+				// Rebuild URL without encoding issues
+				mongoURILog = u.Scheme + "://" + maskedUser.String() + "@" + u.Host + u.Path
+				if u.RawQuery != "" {
+					mongoURILog += "?" + u.RawQuery
+				}
 			}
 		}
 	}
 	log.Printf("MongoDB URI: %s", mongoURILog)
+	
+	// Note: Database name should be in connection string or will be set via MongoDBName config
+	// Don't modify connection string here as it may cause issues with mongodb+srv:// format
 	
 	// Twilio configuration
 	twilioEnabled := getEnv("TWILIO_ENABLED", "false")
