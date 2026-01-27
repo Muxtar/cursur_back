@@ -33,6 +33,20 @@ func Load() *Config {
 		}
 	}
 	
+	// ⚠️ CRITICAL: Detect mongodb+srv:// and warn about Railway DNS issues
+	if strings.HasPrefix(mongoURI, "mongodb+srv://") {
+		log.Println("")
+		log.Println("⚠️  WARNING: Detected 'mongodb+srv://' connection string")
+		log.Println("⚠️  Railway has known DNS issues with SRV DNS resolution")
+		log.Println("⚠️  If you encounter 'lookup _mongodb._tcp... server misbehaving' errors:")
+		log.Println("    → Use 'mongodb://' standard connection string instead")
+		log.Println("    → Get it from MongoDB Atlas: Connect → Connect your application → Standard connection string")
+		log.Println("")
+		log.Println("   Expected format:")
+		log.Println("   mongodb://user:pass@cluster0-shard-00-00.xxxxx.mongodb.net:27017,cluster0-shard-00-01.xxxxx.mongodb.net:27017,cluster0-shard-00-02.xxxxx.mongodb.net:27017/chat_app?ssl=true&replicaSet=atlas-xxxxx-shard-0&authSource=admin&retryWrites=true&w=majority")
+		log.Println("")
+	}
+	
 	// Log MongoDB URI (mask password for security) - only for logging, don't modify original
 	mongoURILog := mongoURI
 	if strings.Contains(mongoURILog, "@") {
@@ -50,9 +64,6 @@ func Load() *Config {
 		}
 	}
 	log.Printf("MongoDB URI: %s", mongoURILog)
-	
-	// Note: Database name should be in connection string or will be set via MongoDBName config
-	// Don't modify connection string here as it may cause issues with mongodb+srv:// format
 	
 	// Twilio configuration
 	twilioEnabled := getEnv("TWILIO_ENABLED", "false")

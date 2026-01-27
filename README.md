@@ -18,9 +18,7 @@ Backend API for the chat application built with Go.
 
 - Go 1.21+
 - Gin (HTTP framework)
-- MongoDB (primary database)
-- Redis (caching)
-- PostgreSQL (relational data)
+- MongoDB (primary database) - **MongoDB Atlas recommended**
 - WebSocket (real-time communication)
 
 ## Setup
@@ -35,7 +33,7 @@ go mod download
 cp .env.example .env
 ```
 
-3. Make sure MongoDB, Redis, and PostgreSQL are running
+3. Make sure MongoDB is running (local MongoDB or MongoDB Atlas)
 
 4. Run the server:
 ```bash
@@ -72,16 +70,50 @@ Bu back-end projesi Railway'de ayrı bir servis olarak deploy edilmelidir.
      - `PGDATABASE` (veya `POSTGRES_DB`)
    - PostgreSQL servisini back-end servisinize bağlayın (Connect butonu ile)
    
-   **b) MongoDB Ekleme:**
-   - Railway'de "New" > "Database" > "Add MongoDB" seçin
-   - MongoDB servisi oluşturulacak
-   - MongoDB servisinin "Variables" sekmesinde `MONGO_URL` veya `MONGODB_URI` değişkenini bulun
-   - MongoDB servisini back-end servisinize bağlayın
+   **b) MongoDB Atlas Bağlantısı (ÖNERİLEN):**
    
-   **c) Redis Ekleme (Opsiyonel):**
-   - Redis kullanmak isterseniz: "New" > "Database" > "Add Redis"
-   - Redis servisini back-end servisinize bağlayın
-   - Veya `REDIS_ENABLED=false` olarak ayarlayın
+   ⚠️ **ÖNEMLİ: Railway'de `mongodb+srv://` kullanmayın!**
+   
+   Railway'de MongoDB Atlas'a bağlanırken **Standard Connection String** kullanmalısınız:
+   
+   1. **MongoDB Atlas'tan Standard Connection String Alın:**
+      - MongoDB Atlas Dashboard → Cluster'ınıza tıklayın → **Connect**
+      - **"Connect your application"** seçeneğini seçin
+      - **"Standard connection string"** seçeneğini seçin (SRV değil!)
+      - Connection string'i kopyalayın
+   
+   2. **Connection String Formatı:**
+      ```
+      mongodb://username:password@cluster0-shard-00-00.xxxxx.mongodb.net:27017,cluster0-shard-00-01.xxxxx.mongodb.net:27017,cluster0-shard-00-02.xxxxx.mongodb.net:27017/chat_app?ssl=true&replicaSet=atlas-xxxxx-shard-0&authSource=admin&retryWrites=true&w=majority
+      ```
+      
+      **Örnek tam connection string:**
+      ```
+      mongodb://muxtarbayramov92:ZcbRm9j6ISIwTmIg@cluster0-shard-00-00.g2e8hv9.mongodb.net:27017,cluster0-shard-00-01.g2e8hv9.mongodb.net:27017,cluster0-shard-00-02.g2e8hv9.mongodb.net:27017/chat_app?ssl=true&replicaSet=atlas-xxxxx-shard-0&authSource=admin&retryWrites=true&w=majority
+      ```
+   
+   3. **Railway'de Ayarlayın:**
+      - Back-end servisinizin **Variables** sekmesine gidin
+      - `MONGODB_URI` variable'ını ekleyin veya güncelleyin
+      - Value olarak yukarıdaki standard connection string'i yapıştırın
+      - `MONGODB_DB` variable'ını da ekleyin (opsiyonel, default: `chat_app`)
+   
+   4. **MongoDB Atlas Network Access:**
+      - MongoDB Atlas Dashboard → **Network Access**
+      - **Add IP Address** → **Allow Access from Anywhere** (`0.0.0.0/0`)
+      - ⚠️ Development için geçici olarak tüm IP'lere izin verin
+      - Production'da sadece Railway IP'lerini ekleyin
+   
+   **❌ KULLANMAYIN (Railway'de DNS sorunlarına yol açar):**
+   ```
+   mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/?options
+   ```
+   
+   **✅ KULLANIN (Railway'de çalışır):**
+   ```
+   mongodb://user:pass@cluster0-shard-00-00.xxxxx.mongodb.net:27017,cluster0-shard-00-01.xxxxx.mongodb.net:27017,cluster0-shard-00-02.xxxxx.mongodb.net:27017/chat_app?ssl=true&replicaSet=atlas-xxxxx-shard-0&authSource=admin&retryWrites=true&w=majority
+   ```
+   
 
 3. **Root Directory Ayarları:**
    - Railway service ayarlarına gidin
@@ -91,20 +123,11 @@ Bu back-end projesi Railway'de ayrı bir servis olarak deploy edilmelidir.
 4. **Environment Variables (Railway Dashboard'da Ayarlayın):**
    ```env
    PORT=8080
-   MONGODB_URI=your-mongodb-connection-string
+   
+   # MongoDB (ZORUNLU) - Standard connection string kullanın (mongodb://, NOT mongodb+srv://)
+   MONGODB_URI=mongodb://user:pass@cluster0-shard-00-00.xxxxx.mongodb.net:27017,cluster0-shard-00-01.xxxxx.mongodb.net:27017,cluster0-shard-00-02.xxxxx.mongodb.net:27017/chat_app?ssl=true&replicaSet=atlas-xxxxx-shard-0&authSource=admin&retryWrites=true&w=majority
    MONGODB_DB=chat_app
    
-   # Redis (Optional - set REDIS_ENABLED=false to disable)
-   REDIS_ENABLED=true
-   REDIS_HOST=your-redis-host
-   REDIS_PORT=6379
-   REDIS_PASSWORD=your-redis-password
-   
-   POSTGRES_HOST=your-postgres-host
-   POSTGRES_PORT=5432
-   POSTGRES_USER=your-postgres-user
-   POSTGRES_PASSWORD=your-postgres-password
-   POSTGRES_DB=chat_app
    JWT_SECRET=your-very-secure-secret-key
    JWT_EXPIRATION=24h
    UPLOAD_DIR=./uploads
@@ -112,16 +135,35 @@ Bu back-end projesi Railway'de ayrı bir servis olarak deploy edilmelidir.
    CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com,https://www.your-frontend-domain.com
    ```
    
+   **Railway MongoDB Setup Checklist:**
+   
+   ✅ **Variables Sekmesi:**
+   - [ ] `MONGODB_URI` - Standard connection string (mongodb:// formatında)
+   - [ ] `MONGODB_DB` - Database adı (opsiyonel, default: `chat_app`)
+   
+   ✅ **MongoDB Atlas Network Access:**
+   - [ ] MongoDB Atlas Dashboard → Network Access
+   - [ ] Add IP Address → Allow Access from Anywhere (`0.0.0.0/0`)
+   - [ ] ⚠️ Development için geçici olarak tüm IP'lere izin verin
+   - [ ] Production'da sadece Railway IP'lerini ekleyin (least privilege)
+   
+   ✅ **Connection String Özellikleri:**
+   - [ ] `mongodb://` ile başlamalı (SRV değil!)
+   - [ ] Host adresleri `cluster0-shard-00-00.xxxxx.mongodb.net:27017` formatında olmalı
+   - [ ] Port numaraları (`:27017`) belirtilmiş olmalı
+   - [ ] Database adı (`/chat_app`) connection string'de olmalı
+   - [ ] Şifre özel karakter içeriyorsa URL-encoded olmalı
+   
+   ✅ **Özel Karakterler İçin:**
+   - Railway Variables'da şifre özel karakter içeriyorsa:
+     - URL-encode edin (örn: `@` → `%40`, `#` → `%23`)
+     - Veya Railway'de variable'ı raw string olarak ayarlayın
+   
    **ÖNEMLİ NOTLAR:**
-   - **PostgreSQL ve MongoDB ZORUNLUDUR** - Uygulama bu olmadan çalışmaz
-   - Railway'de database servislerini ekledikten sonra, Railway otomatik olarak environment variable'ları ayarlar
-   - Eğer Railway otomatik olarak ayarlamazsa, database servisinin "Variables" sekmesinden değerleri kopyalayıp back-end servisine ekleyin
+   - **MongoDB ZORUNLUDUR** - Uygulama bu olmadan çalışmaz
+   - `mongodb+srv://` kullanmayın - Railway'de DNS sorunlarına yol açar
+   - Standard connection string kullanın (`mongodb://`)
    - `CORS_ALLOWED_ORIGINS` değişkenine front-end domain'inizi ekleyin
-   - **Redis opsiyoneldir**. Eğer Redis servisi kurulu değilse, `REDIS_ENABLED=false` olarak ayarlayın
-   - Redis olmadan da uygulama çalışır, ancak bazı özellikler sınırlı olur (QR kod cache, verification code, typing indicators)
-   - Redis bağlantısı başarısız olursa, uygulama 5 kez deneyecek ve sonra Redis olmadan devam edecek
-   - GoDaddy domain'inizi front-end'e bağladıktan sonra `CORS_ALLOWED_ORIGINS`'e ekleyin
-   - Örnek: `https://yourdomain.com,https://www.yourdomain.com`
    - Birden fazla domain varsa virgülle ayırın
 
 5. **Build ve Deploy:**
@@ -132,18 +174,14 @@ Bu back-end projesi Railway'de ayrı bir servis olarak deploy edilmelidir.
 
 6. **Troubleshooting:**
    
-   **PostgreSQL Bağlantı Hatası:**
-   - `Failed to connect to PostgreSQL` hatası alırsanız:
-     - Railway'de PostgreSQL servisi eklediğinizden emin olun
-     - PostgreSQL servisini back-end servisinize bağladığınızdan emin olun
-     - Back-end servisinin "Variables" sekmesinde PostgreSQL environment variable'larının olduğunu kontrol edin
-     - Railway bazen `PGHOST`, `PGPORT` gibi değişkenler kullanır, bunları `POSTGRES_HOST`, `POSTGRES_PORT` olarak manuel eklemeniz gerekebilir
-   
    **MongoDB Bağlantı Hatası:**
-   - `Failed to connect to MongoDB` hatası alırsanız:
-     - Railway'de MongoDB servisi eklediğinizden emin olun
-     - MongoDB servisini back-end servisinize bağladığınızdan emin olun
-     - `MONGODB_URI` değişkeninin doğru ayarlandığını kontrol edin
+   - `Failed to connect to MongoDB` veya `lookup _mongodb._tcp... server misbehaving` hatası alırsanız:
+     - ⚠️ **DNS SRV Hatası:** `mongodb+srv://` kullanıyorsanız, standard `mongodb://` connection string kullanın
+     - `MONGODB_URI` değişkeninin standard format (`mongodb://`) olduğunu kontrol edin
+     - MongoDB Atlas Network Access'te `0.0.0.0/0` (tüm IP'ler) ekli olduğunu kontrol edin
+     - Connection string'de database adının (`/chat_app`) olduğunu kontrol edin
+     - Şifre özel karakter içeriyorsa URL-encoded olduğunu kontrol edin
+     - MongoDB Atlas cluster'ının çalıştığını kontrol edin
    
    **Build Hatası:**
    - Eğer `"/go.mod": not found` hatası alırsanız:
