@@ -23,6 +23,7 @@ type Config struct {
 
 func Load() *Config {
 	// For MongoDB: Railway uses MONGO_URL or MONGODB_URI
+	// Railway MongoDB service provides MONGO_URL automatically
 	mongoURI := getEnv("MONGODB_URI", "")
 	if mongoURI == "" {
 		mongoURI = getEnv("MONGO_URL", "")
@@ -30,6 +31,28 @@ func Load() *Config {
 			mongoURI = "mongodb://localhost:27017"
 			log.Println("WARNING: MongoDB URI not set, using default localhost:27017")
 			log.Println("WARNING: Set MONGODB_URI or MONGO_URL environment variable in Railway")
+		}
+	}
+	
+	// If using Railway MongoDB service, ensure database name is in connection string
+	// Railway's MONGO_URL doesn't include database name, so we add it if missing
+	if strings.Contains(mongoURI, "railway.internal") || strings.Contains(mongoURI, "proxy.rlwy.net") {
+		// Check if database name is already in connection string
+		if !strings.Contains(mongoURI, "/") || strings.HasSuffix(mongoURI, "/") {
+			dbName := getEnv("MONGODB_DB", getEnv("MONGO_DATABASE", "chat_app"))
+			// Add database name before query string or at the end
+			if strings.Contains(mongoURI, "?") {
+				// Insert database name before query string
+				parts := strings.SplitN(mongoURI, "?", 2)
+				if !strings.Contains(parts[0], "/") || strings.HasSuffix(parts[0], "/") {
+					parts[0] = strings.TrimSuffix(parts[0], "/") + "/" + dbName
+					mongoURI = strings.Join(parts, "?")
+				}
+			} else {
+				// Add database name at the end
+				mongoURI = strings.TrimSuffix(mongoURI, "/") + "/" + dbName
+			}
+			log.Printf("Added database name to Railway MongoDB connection string: %s", dbName)
 		}
 	}
 	
