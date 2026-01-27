@@ -1,5 +1,8 @@
-// This is a complete example of CORS middleware for net/http
-// Use this if you're NOT using Gin framework
+//go:build ignore
+// +build ignore
+
+// This file is an example only and is excluded from builds.
+// (It previously conflicted with the real `main.go` by defining another main package.)
 package main
 
 import (

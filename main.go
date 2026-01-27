@@ -86,6 +86,12 @@ func main() {
 	// This ensures preflight (OPTIONS) requests are handled correctly
 	r.Use(middleware.CORSMiddleware())
 	log.Println("✅ CORS middleware configured and added to router")
+
+	// Catch-all OPTIONS so Gin never returns 404/405 for preflight.
+	// CORS headers are set by the middleware above.
+	r.OPTIONS("/*path", func(c *gin.Context) {
+		c.Status(204)
+	})
 	// ===== END CORS CONFIGURATION =====
 
 	// Setup routes (AFTER CORS middleware)
@@ -108,6 +114,13 @@ func main() {
 		corsOrigins = "https://www.fridpass.com, http://localhost:3000 (default)"
 	}
 	log.Printf("🔧 CORS enabled origins: %s", corsOrigins)
+
+	// Log deploy/build identity (helps verify Railway deployed the right commit)
+	if sha := os.Getenv("RAILWAY_GIT_COMMIT_SHA"); sha != "" {
+		log.Printf("🔧 Build commit: %s", sha)
+	} else if sha := os.Getenv("GIT_COMMIT_SHA"); sha != "" {
+		log.Printf("🔧 Build commit: %s", sha)
+	}
 	
 	if err := r.Run(listenAddr); err != nil {
 		log.Fatal("Failed to start server:", err)
