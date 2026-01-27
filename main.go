@@ -96,8 +96,11 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Server starting on port %s", port)
-	if err := r.Run(":" + port); err != nil {
+	// Listen on 0.0.0.0 to accept connections from all interfaces
+	// This is required for Railway and other cloud platforms
+	listenAddr := "0.0.0.0:" + port
+	log.Printf("Server starting on %s", listenAddr)
+	if err := r.Run(listenAddr); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }
