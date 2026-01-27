@@ -29,7 +29,9 @@ func CORSMiddleware() gin.HandlerFunc {
 		// IMPORTANT:
 		// - Keep false unless you actually use cookies/sessions cross-site.
 		// - If you later enable it, NEVER use AllowAllOrigins / "*" with it.
-		AllowCredentials: false,
+		// Required when frontend uses fetch(..., { credentials: "include" }) or axios withCredentials.
+		// Safe here because AllowOrigins is an explicit whitelist (NOT "*").
+		AllowCredentials: true,
 		MaxAge:           24 * time.Hour,
 	}
 
