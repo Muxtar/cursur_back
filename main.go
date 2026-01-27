@@ -83,35 +83,38 @@ func main() {
 
 	// CORS configuration - Read allowed origins from environment variable
 	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
-	if allowedOrigins == "" {
-		// Default: allow all origins for Railway (can be restricted later)
-		allowedOrigins = "*"
-		log.Println("⚠️ CORS_ALLOWED_ORIGINS not set, allowing all origins (*)")
-		log.Println("   For production, set CORS_ALLOWED_ORIGINS to your front-end URL(s)")
-	}
-
-	// Split comma-separated origins
-	origins := []string{}
-	if allowedOrigins != "*" {
-		// Split by comma and trim spaces
+	
+	var corsConfig cors.Config
+	
+	if allowedOrigins == "" || allowedOrigins == "*" {
+		// Default: allow all origins for Railway
+		corsConfig = cors.Config{
+			AllowAllOrigins:  true,
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With", "Accept", "Accept-Language", "Content-Language"},
+			ExposeHeaders:    []string{"Content-Length", "Content-Type", "Authorization"},
+			AllowCredentials: true,
+			MaxAge:           12 * 3600, // 12 hours
+		}
+		log.Println("✅ CORS: Allowing all origins (*)")
+	} else {
+		// Split comma-separated origins
+		origins := []string{}
 		for _, origin := range splitAndTrim(allowedOrigins, ",") {
 			if origin != "" {
 				origins = append(origins, origin)
 				log.Printf("✅ CORS allowed origin: %s", origin)
 			}
 		}
-	} else {
-		origins = []string{"*"}
-		log.Println("✅ CORS: Allowing all origins (*)")
-	}
-
-	corsConfig := cors.Config{
-		AllowOrigins:     origins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"},
-		ExposeHeaders:    []string{"Content-Length", "Content-Type"},
-		AllowCredentials: true,
-		MaxAge:           12 * 3600, // 12 hours
+		
+		corsConfig = cors.Config{
+			AllowOrigins:     origins,
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With", "Accept", "Accept-Language", "Content-Language"},
+			ExposeHeaders:    []string{"Content-Length", "Content-Type", "Authorization"},
+			AllowCredentials: true,
+			MaxAge:           12 * 3600, // 12 hours
+		}
 	}
 
 	r.Use(cors.New(corsConfig))
