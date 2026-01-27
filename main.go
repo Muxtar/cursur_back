@@ -109,11 +109,7 @@ func main() {
 	log.Printf("🚀 Server starting on %s", listenAddr)
 	
 	// Log CORS configuration
-	corsOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
-	if corsOrigins == "" {
-		corsOrigins = "https://www.fridpass.com, http://localhost:3000 (default)"
-	}
-	log.Printf("🔧 CORS enabled origins: %s", corsOrigins)
+	// Note: CORS origins are logged by the middleware itself.
 
 	// Log deploy/build identity (helps verify Railway deployed the right commit)
 	if sha := os.Getenv("RAILWAY_GIT_COMMIT_SHA"); sha != "" {
