@@ -122,6 +122,7 @@ func (d *Database) Close() {
 func (d *Database) migrate() {
 	// Auto-migrate PostgreSQL models
 	if d.Postgres != nil {
+		log.Println("Starting PostgreSQL migration...")
 		err := d.Postgres.AutoMigrate(
 			&models.VerificationCode{},
 			&models.QRCodeCache{},
@@ -129,9 +130,16 @@ func (d *Database) migrate() {
 			&models.CacheEntry{},
 		)
 		if err != nil {
-			log.Printf("Warning: Failed to auto-migrate PostgreSQL models: %v", err)
+			log.Printf("ERROR: Failed to auto-migrate PostgreSQL models: %v", err)
+			log.Println("This may cause issues with verification codes and other features.")
 		} else {
-			log.Println("PostgreSQL models migrated successfully")
+			log.Println("PostgreSQL models migrated successfully:")
+			log.Println("  - verification_codes")
+			log.Println("  - qr_code_cache")
+			log.Println("  - typing_indicators")
+			log.Println("  - cache_entries")
 		}
+	} else {
+		log.Println("WARNING: PostgreSQL is not available, skipping migration")
 	}
 }

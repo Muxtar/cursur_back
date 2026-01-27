@@ -77,10 +77,20 @@ func (h *AuthHandler) storeVerificationCode(ctx context.Context, phone, code str
 	}
 
 	// Delete any existing codes for this phone number first
-	h.db.Postgres.Where("phone_number = ?", phone).Delete(&models.VerificationCode{})
+	deleteErr := h.db.Postgres.Where("phone_number = ?", phone).Delete(&models.VerificationCode{}).Error
+	if deleteErr != nil {
+		fmt.Printf("Warning: Failed to delete existing verification codes: %v\n", deleteErr)
+		// Continue anyway - we'll try to insert the new code
+	}
 
 	// Insert new code
-	return h.db.Postgres.Create(&verificationCode).Error
+	err := h.db.Postgres.Create(&verificationCode).Error
+	if err != nil {
+		fmt.Printf("Error storing verification code: %v\n", err)
+		return fmt.Errorf("failed to store verification code: %w", err)
+	}
+
+	return nil
 }
 
 func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code string) (bool, error) {
@@ -97,11 +107,17 @@ func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code s
 		return false, nil // invalid/expired
 	}
 	if err != nil {
-		return false, err
+		// Log the error for debugging
+		fmt.Printf("Error consuming verification code: %v\n", err)
+		return false, fmt.Errorf("failed to verify code: %w", err)
 	}
 
 	// Consume: delete all codes for that phone (prevent reuse)
-	h.db.Postgres.Where("phone_number = ?", phone).Delete(&models.VerificationCode{})
+	deleteErr := h.db.Postgres.Where("phone_number = ?", phone).Delete(&models.VerificationCode{}).Error
+	if deleteErr != nil {
+		// Log but don't fail - code was already verified
+		fmt.Printf("Warning: Failed to delete verification code after verification: %v\n", deleteErr)
+	}
 
 	return true, nil
 }
@@ -323,7 +339,8 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 
 	ok, err := h.consumeVerificationCode(context.Background(), req.PhoneNumber, req.Code)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Verification lookup failed"})
+		fmt.Printf("Error in consumeVerificationCode: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Verification lookup failed: " + err.Error()})
 		return
 	}
 	if !ok {
@@ -344,7 +361,8 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		fmt.Printf("Error finding user in MongoDB: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error: " + err.Error()})
 		return
 	}
 
