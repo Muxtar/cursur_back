@@ -10,6 +10,7 @@ import (
 )
 
 // getAllowedOrigins returns the list of allowed origins from environment
+// CRITICAL: "*" is NOT allowed when credentials are used (browser security)
 func getAllowedOrigins() []string {
 	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
 	
@@ -23,11 +24,30 @@ func getAllowedOrigins() []string {
 		return defaultOrigins
 	}
 	
+	// CRITICAL: Reject "*" if credentials are used
+	// Check if credentials are used (via environment variable or default true for security)
+	useCredentials := os.Getenv("CORS_ALLOW_CREDENTIALS")
+	if useCredentials == "" {
+		// Default to true for security (explicit origins required)
+		useCredentials = "true"
+	}
+	
+	// If "*" is provided and credentials are enabled, reject it
+	if strings.TrimSpace(allowedOrigins) == "*" {
+		if useCredentials == "true" {
+			log.Printf("⚠️ WARNING: CORS_ALLOWED_ORIGINS='*' is not compatible with credentials. Using default origins instead.")
+			return defaultOrigins
+		}
+		// If credentials are disabled, allow "*" (but this is not recommended)
+		log.Printf("⚠️ WARNING: CORS_ALLOWED_ORIGINS='*' is set. This is not recommended for production.")
+		return []string{"*"}
+	}
+	
 	// Split comma-separated origins
 	origins := []string{}
 	for _, origin := range strings.Split(allowedOrigins, ",") {
 		origin = strings.TrimSpace(origin)
-		if origin != "" {
+		if origin != "" && origin != "*" {
 			origins = append(origins, origin)
 		}
 	}
@@ -57,11 +77,30 @@ func isOriginAllowed(origin string, allowedOrigins []string) bool {
 // 1. Handles preflight (OPTIONS) requests with proper CORS headers
 // 2. Validates origin against allowed list
 // 3. Sets Vary: Origin header for proper caching
-// 4. Only allows credentials when origin is explicitly allowed
+// 4. Only allows credentials when origin is explicitly allowed (not "*")
 // 5. Sets CORS headers on ALL responses (not just OPTIONS)
 func CORSMiddleware() gin.HandlerFunc {
 	allowedOrigins := getAllowedOrigins()
+	
+	// Check if credentials should be enabled
+	useCredentialsEnv := os.Getenv("CORS_ALLOW_CREDENTIALS")
+	useCredentials := useCredentialsEnv == "" || useCredentialsEnv == "true" // Default to true for security
+	
+	// If "*" is in allowed origins, credentials cannot be used
+	hasWildcard := false
+	for _, orig := range allowedOrigins {
+		if orig == "*" {
+			hasWildcard = true
+			break
+		}
+	}
+	if hasWildcard {
+		useCredentials = false
+		log.Printf("⚠️ WARNING: Wildcard origin '*' detected. Credentials will be disabled.")
+	}
+	
 	log.Printf("🔧 CORS Middleware initialized with allowed origins: %v", allowedOrigins)
+	log.Printf("🔧 CORS credentials enabled: %v", useCredentials)
 	log.Println("✅ CORS middleware ACTIVE - preflight requests will be handled")
 	
 	return func(c *gin.Context) {
@@ -73,17 +112,34 @@ func CORSMiddleware() gin.HandlerFunc {
 		log.Printf("🌐 CORS Middleware: %s %s | Origin: %s", method, path, origin)
 		
 		// Always set Vary: Origin header for proper cache control
-		// This tells caches that the response varies based on the Origin header
 		c.Header("Vary", "Origin")
 		
 		// Handle preflight (OPTIONS) requests
 		if method == http.MethodOptions {
 			log.Printf("✅ OPTIONS preflight request detected: %s | Origin: %s", path, origin)
 			
-			if isOriginAllowed(origin, allowedOrigins) {
+			// Check if origin is allowed
+			originAllowed := false
+			var allowedOrigin string
+			
+			if hasWildcard {
+				// Wildcard allows all origins
+				allowedOrigin = "*"
+				originAllowed = true
+			} else if isOriginAllowed(origin, allowedOrigins) {
+				allowedOrigin = origin
+				originAllowed = true
+			}
+			
+			if originAllowed {
 				log.Printf("✅ Origin allowed: %s", origin)
-				c.Header("Access-Control-Allow-Origin", origin)
-				c.Header("Access-Control-Allow-Credentials", "true")
+				c.Header("Access-Control-Allow-Origin", allowedOrigin)
+				
+				// Only set credentials header if not using wildcard
+				if useCredentials && !hasWildcard {
+					c.Header("Access-Control-Allow-Credentials", "true")
+				}
+				
 				c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 				c.Header("Access-Control-Max-Age", "86400") // 24 hours
@@ -98,9 +154,23 @@ func CORSMiddleware() gin.HandlerFunc {
 		}
 		
 		// Handle regular requests - ALWAYS set CORS headers if origin is allowed
-		if isOriginAllowed(origin, allowedOrigins) {
-			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Access-Control-Allow-Credentials", "true")
+		originAllowed := false
+		var allowedOrigin string
+		
+		if hasWildcard {
+			allowedOrigin = "*"
+			originAllowed = true
+		} else if isOriginAllowed(origin, allowedOrigins) {
+			allowedOrigin = origin
+			originAllowed = true
+		}
+		
+		if originAllowed {
+			c.Header("Access-Control-Allow-Origin", allowedOrigin)
+			// Only set credentials header if not using wildcard
+			if useCredentials && !hasWildcard {
+				c.Header("Access-Control-Allow-Credentials", "true")
+			}
 		} else if origin != "" {
 			log.Printf("⚠️ Origin not allowed for regular request: %s", origin)
 		}

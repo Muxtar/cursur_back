@@ -101,7 +101,13 @@ func main() {
 	// This is REQUIRED for Railway and other cloud platforms
 	listenAddr := "0.0.0.0:" + port
 	log.Printf("🚀 Server starting on %s", listenAddr)
-	log.Printf("🔧 CORS enabled for: https://www.fridpass.com, http://localhost:3000")
+	
+	// Log CORS configuration
+	corsOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if corsOrigins == "" {
+		corsOrigins = "https://www.fridpass.com, http://localhost:3000 (default)"
+	}
+	log.Printf("🔧 CORS enabled origins: %s", corsOrigins)
 	
 	if err := r.Run(listenAddr); err != nil {
 		log.Fatal("Failed to start server:", err)
