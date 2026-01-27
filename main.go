@@ -82,24 +82,27 @@ func main() {
 	}
 
 	// ===== CORS CONFIGURATION =====
-	// Apply CORS middleware FIRST (before routes)
+	// CRITICAL: CORS middleware MUST be added BEFORE routes
 	// This ensures preflight (OPTIONS) requests are handled correctly
 	r.Use(middleware.CORSMiddleware())
-	log.Println("✅ CORS middleware configured")
+	log.Println("✅ CORS middleware configured and added to router")
 	// ===== END CORS CONFIGURATION =====
 
 	// Setup routes (AFTER CORS middleware)
 	router.SetupRoutes(r, db, hub, cfg)
 
+	// Get port from environment
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
 	// Listen on 0.0.0.0 to accept connections from all interfaces
-	// This is required for Railway and other cloud platforms
+	// This is REQUIRED for Railway and other cloud platforms
 	listenAddr := "0.0.0.0:" + port
-	log.Printf("Server starting on %s", listenAddr)
+	log.Printf("🚀 Server starting on %s", listenAddr)
+	log.Printf("🔧 CORS enabled for: https://www.fridpass.com, http://localhost:3000")
+	
 	if err := r.Run(listenAddr); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
