@@ -84,7 +84,10 @@ func main() {
 	// CORS configuration - Read allowed origins from environment variable
 	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
 	if allowedOrigins == "" {
-		allowedOrigins = "*" // Default to allow all for development
+		// Default: allow all origins for Railway (can be restricted later)
+		allowedOrigins = "*"
+		log.Println("⚠️ CORS_ALLOWED_ORIGINS not set, allowing all origins (*)")
+		log.Println("   For production, set CORS_ALLOWED_ORIGINS to your front-end URL(s)")
 	}
 
 	// Split comma-separated origins
@@ -94,20 +97,25 @@ func main() {
 		for _, origin := range splitAndTrim(allowedOrigins, ",") {
 			if origin != "" {
 				origins = append(origins, origin)
+				log.Printf("✅ CORS allowed origin: %s", origin)
 			}
 		}
 	} else {
 		origins = []string{"*"}
+		log.Println("✅ CORS: Allowing all origins (*)")
 	}
 
-	r.Use(cors.New(cors.Config{
+	corsConfig := cors.Config{
 		AllowOrigins:     origins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           12 * 3600, // 12 hours
-	}))
+	}
+
+	r.Use(cors.New(corsConfig))
+	log.Println("✅ CORS middleware configured")
 
 	// Setup routes
 	router.SetupRoutes(r, db, hub, cfg)
