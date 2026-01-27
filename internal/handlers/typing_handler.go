@@ -9,7 +9,9 @@ import (
 	"chat-backend/internal/websocket"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type TypingHandler struct {
@@ -40,11 +42,23 @@ func (h *TypingHandler) SetTyping(c *gin.Context) {
 		return
 	}
 
-	// Store typing indicator in Redis (expires in 5 seconds) - if available
-	key := "typing:" + chatID.Hex() + ":" + userIDObj.Hex()
-	if h.db.Redis != nil {
-		h.db.Redis.Set(context.Background(), key, req.Type, 5*time.Second)
+	// Store typing indicator in MongoDB (expires in 5 seconds)
+	expiresAt := time.Now().Add(5 * time.Second)
+	doc := bson.M{
+		"chat_id":   chatID,
+		"user_id":   userIDObj,
+		"type":      req.Type,
+		"expires_at": expiresAt,
+		"created_at": time.Now(),
 	}
+	
+	// Use upsert to update if exists
+	filter := bson.M{
+		"chat_id": chatID,
+		"user_id": userIDObj,
+	}
+	update := bson.M{"$set": doc}
+	_, _ = h.db.MongoDB.Collection("typing_indicators").UpdateOne(context.Background(), filter, update, options.Update().SetUpsert(true))
 
 	// Broadcast via WebSocket
 	// This would be handled by WebSocket hub
@@ -60,34 +74,33 @@ func (h *TypingHandler) GetTyping(c *gin.Context) {
 		return
 	}
 
-	// Get all typing indicators for this chat
-	if h.db.Redis == nil {
-		c.JSON(http.StatusOK, gin.H{"typing": []interface{}{}})
-		return
+	// Get all typing indicators for this chat from MongoDB
+	now := time.Now()
+	filter := bson.M{
+		"chat_id":   chatID,
+		"expires_at": bson.M{"$gt": now}, // Only get non-expired indicators
 	}
 	
-	pattern := "typing:" + chatID.Hex() + ":*"
-	keys, err := h.db.Redis.Keys(context.Background(), pattern).Result()
+	cursor, err := h.db.MongoDB.Collection("typing_indicators").Find(context.Background(), filter)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"typing": []interface{}{}})
 		return
 	}
+	defer cursor.Close(context.Background())
 
 	var typingUsers []map[string]interface{}
-	for _, key := range keys {
-		typ, err := h.db.Redis.Get(context.Background(), key).Result()
-		if err != nil {
+	for cursor.Next(context.Background()) {
+		var doc bson.M
+		if err := cursor.Decode(&doc); err != nil {
 			continue
 		}
 
-		// Extract user ID from key
-		// Format: typing:chatID:userID
-		userIDStr := key[len("typing:"+chatID.Hex()+":"):]
-		userID, err := primitive.ObjectIDFromHex(userIDStr)
-		if err != nil {
+		userID, ok := doc["user_id"].(primitive.ObjectID)
+		if !ok {
 			continue
 		}
 
+		typ, _ := doc["type"].(string)
 		typingUsers = append(typingUsers, map[string]interface{}{
 			"user_id": userID,
 			"type":    typ,

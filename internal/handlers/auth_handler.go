@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -64,7 +65,6 @@ type RegisterWithCodeRequest struct {
 }
 
 // verificationCodeDoc stores phone verification codes.
-// Used as a fallback when Redis is not available.
 type verificationCodeDoc struct {
 	PhoneNumber string    `bson:"phone_number"`
 	Code        string    `bson:"code"`
@@ -72,14 +72,16 @@ type verificationCodeDoc struct {
 	CreatedAt   time.Time `bson:"created_at"`
 }
 
+// qrCodeCacheDoc stores QR code to user ID mapping for quick lookup.
+type qrCodeCacheDoc struct {
+	QRData   string    `bson:"qr_data"`
+	UserID   string    `bson:"user_id"`
+	CreatedAt time.Time `bson:"created_at"`
+}
+
 func (h *AuthHandler) storeVerificationCode(ctx context.Context, phone, code string, ttl time.Duration) error {
 	expiresAt := time.Now().Add(ttl)
-	// Prefer Redis when available
-	if h.db.Redis != nil {
-		key := "verify_code:" + phone
-		return h.db.Redis.Set(ctx, key, code, ttl).Err()
-	}
-	// Fallback to MongoDB (works even without Redis; supports multi-instance)
+	// Store verification code in MongoDB
 	doc := verificationCodeDoc{
 		PhoneNumber: phone,
 		Code:        code,
@@ -91,21 +93,7 @@ func (h *AuthHandler) storeVerificationCode(ctx context.Context, phone, code str
 }
 
 func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code string) (bool, error) {
-	// Prefer Redis when available
-	if h.db.Redis != nil {
-		key := "verify_code:" + phone
-		storedCode, err := h.db.Redis.Get(ctx, key).Result()
-		if err != nil {
-			return false, nil // invalid/expired
-		}
-		if storedCode != code {
-			return false, nil
-		}
-		_ = h.db.Redis.Del(ctx, key).Err()
-		return true, nil
-	}
-
-	// Fallback to MongoDB: must match + not expired
+	// Check MongoDB: must match + not expired
 	now := time.Now()
 	filter := bson.M{
 		"phone_number": phone,
@@ -190,10 +178,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Store QR data in Redis for quick lookup (if Redis is available)
-	if h.db.Redis != nil {
-		h.db.Redis.Set(context.Background(), "qr:"+qrData, userID.Hex(), 0)
+	// Store QR data in MongoDB for quick lookup
+	qrCacheDoc := qrCodeCacheDoc{
+		QRData:    qrData,
+		UserID:    userID.Hex(),
+		CreatedAt: time.Now(),
 	}
+	// Use upsert to update if exists
+	filter := bson.M{"qr_data": qrData}
+	update := bson.M{"$set": qrCacheDoc}
+	_, _ = h.db.MongoDB.Collection("qr_code_cache").UpdateOne(context.Background(), filter, update, options.Update().SetUpsert(true))
 
 	// Generate token
 	token, err := utils.GenerateToken(userID)
@@ -463,10 +457,16 @@ func (h *AuthHandler) RegisterWithCode(c *gin.Context) {
 		return
 	}
 
-	// Store QR data in Redis (if available)
-	if h.db.Redis != nil {
-		h.db.Redis.Set(context.Background(), "qr:"+qrData, userID.Hex(), 0)
+	// Store QR data in MongoDB for quick lookup
+	qrCacheDoc := qrCodeCacheDoc{
+		QRData:    qrData,
+		UserID:    userID.Hex(),
+		CreatedAt: time.Now(),
 	}
+	// Use upsert to update if exists
+	filter := bson.M{"qr_data": qrData}
+	update := bson.M{"$set": qrCacheDoc}
+	_, _ = h.db.MongoDB.Collection("qr_code_cache").UpdateOne(context.Background(), filter, update, options.Update().SetUpsert(true))
 
 	// Generate token
 	token, err := utils.GenerateToken(userID)

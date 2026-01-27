@@ -626,17 +626,16 @@ func (h *SettingsHandler) ClearCache(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDObj := userID.(primitive.ObjectID)
 
-	// Clear Redis cache for user
+	// Clear MongoDB cache collections for user
 	ctx := context.Background()
-	if h.db.Redis != nil {
-		pattern := "user:" + userIDObj.Hex() + ":*"
-		keys, err := h.db.Redis.Keys(ctx, pattern).Result()
-		if err == nil {
-			for _, key := range keys {
-				h.db.Redis.Del(ctx, key)
-			}
-		}
-	}
+	
+	// Delete QR code cache entries
+	_, _ = h.db.MongoDB.Collection("qr_code_cache").DeleteMany(ctx, bson.M{"user_id": userIDObj.Hex()})
+	
+	// Delete typing indicators
+	_, _ = h.db.MongoDB.Collection("typing_indicators").DeleteMany(ctx, bson.M{"user_id": userIDObj})
+	
+	// Note: Verification codes are already auto-expired based on expires_at field
 
 	c.JSON(http.StatusOK, gin.H{"message": "Cache cleared"})
 }
