@@ -205,7 +205,19 @@ func (h *AuthHandler) GetQRCode(c *gin.Context) {
 func (h *AuthHandler) SendCode(c *gin.Context) {
 	var req SendCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	// Validate phone number
+	if req.PhoneNumber == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Phone number is required"})
+		return
+	}
+
+	// Basic phone number validation (should start with + and have at least 10 digits)
+	if len(req.PhoneNumber) < 10 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid phone number format"})
 		return
 	}
 
@@ -224,26 +236,27 @@ func (h *AuthHandler) SendCode(c *gin.Context) {
 	}
 
 	// Send SMS via Twilio
+	twilioSent := false
 	if h.twilio != nil && h.twilio.IsEnabled() {
 		err = h.twilio.SendVerificationCode(req.PhoneNumber, code)
 		if err != nil {
 			// Log error but don't fail the request - code is still stored in Redis
-			// In development, we can still return the code
 			fmt.Printf("Failed to send SMS via Twilio: %v\n", err)
-			// In production, you might want to return an error here
-			// For now, we'll fall back to returning the code in development
+		} else {
+			twilioSent = true
 		}
 	}
 
 	// Response
 	response := gin.H{
 		"message": "Verification code sent",
+		"success": true,
 	}
 
 	// Only return code in development mode (when Twilio is disabled or failed)
 	// In production with Twilio enabled, don't return the code
-	if h.twilio == nil || !h.twilio.IsEnabled() {
-		response["code"] = code // Development mode - remove in production
+	if h.twilio == nil || !h.twilio.IsEnabled() || !twilioSent {
+		response["code"] = code // Development mode or Twilio failed
 	}
 
 	c.JSON(http.StatusOK, response)
