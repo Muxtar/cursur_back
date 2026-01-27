@@ -107,7 +107,7 @@ func main() {
 	// This is REQUIRED for Railway and other cloud platforms
 	listenAddr := "0.0.0.0:" + port
 	log.Printf("🚀 Server starting on %s", listenAddr)
-	
+
 	// Log CORS configuration
 	// Note: CORS origins are logged by the middleware itself.
 
@@ -117,8 +117,10 @@ func main() {
 	} else if sha := os.Getenv("GIT_COMMIT_SHA"); sha != "" {
 		log.Printf("🔧 Build commit: %s", sha)
 	}
-	
+
 	if err := r.Run(listenAddr); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }
+
+var a = 1
