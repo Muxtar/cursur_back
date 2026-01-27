@@ -17,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type AuthHandler struct {
@@ -63,64 +64,45 @@ type RegisterWithCodeRequest struct {
 	CompanyCategory string `json:"company_category,omitempty"`
 }
 
-// verificationCodeDoc stores phone verification codes.
-// Used as a fallback when Redis is not available.
-type verificationCodeDoc struct {
-	PhoneNumber string    `bson:"phone_number"`
-	Code        string    `bson:"code"`
-	ExpiresAt   time.Time `bson:"expires_at"`
-	CreatedAt   time.Time `bson:"created_at"`
-}
-
 func (h *AuthHandler) storeVerificationCode(ctx context.Context, phone, code string, ttl time.Duration) error {
-	expiresAt := time.Now().Add(ttl)
-	// Prefer Redis when available
-	if h.db.Redis != nil {
-		key := "verify_code:" + phone
-		return h.db.Redis.Set(ctx, key, code, ttl).Err()
+	if h.db.Postgres == nil {
+		return fmt.Errorf("PostgreSQL database not available")
 	}
-	// Fallback to MongoDB (works even without Redis; supports multi-instance)
-	doc := verificationCodeDoc{
+
+	expiresAt := time.Now().Add(ttl)
+	verificationCode := models.VerificationCode{
 		PhoneNumber: phone,
 		Code:        code,
 		ExpiresAt:   expiresAt,
-		CreatedAt:   time.Now(),
 	}
-	_, err := h.db.MongoDB.Collection("verification_codes").InsertOne(ctx, doc)
-	return err
+
+	// Delete any existing codes for this phone number first
+	h.db.Postgres.Where("phone_number = ?", phone).Delete(&models.VerificationCode{})
+
+	// Insert new code
+	return h.db.Postgres.Create(&verificationCode).Error
 }
 
 func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code string) (bool, error) {
-	// Prefer Redis when available
-	if h.db.Redis != nil {
-		key := "verify_code:" + phone
-		storedCode, err := h.db.Redis.Get(ctx, key).Result()
-		if err != nil {
-			return false, nil // invalid/expired
-		}
-		if storedCode != code {
-			return false, nil
-		}
-		_ = h.db.Redis.Del(ctx, key).Err()
-		return true, nil
+	if h.db.Postgres == nil {
+		return false, fmt.Errorf("PostgreSQL database not available")
 	}
 
-	// Fallback to MongoDB: must match + not expired
-	now := time.Now()
-	filter := bson.M{
-		"phone_number": phone,
-		"code":         code,
-		"expires_at":   bson.M{"$gt": now},
-	}
-	err := h.db.MongoDB.Collection("verification_codes").FindOne(ctx, filter).Err()
-	if err == mongo.ErrNoDocuments {
-		return false, nil
+	// Find matching code that hasn't expired
+	var verificationCode models.VerificationCode
+	err := h.db.Postgres.Where("phone_number = ? AND code = ? AND expires_at > ?", phone, code, time.Now()).
+		First(&verificationCode).Error
+
+	if err == gorm.ErrRecordNotFound {
+		return false, nil // invalid/expired
 	}
 	if err != nil {
 		return false, err
 	}
+
 	// Consume: delete all codes for that phone (prevent reuse)
-	_, _ = h.db.MongoDB.Collection("verification_codes").DeleteMany(ctx, bson.M{"phone_number": phone})
+	h.db.Postgres.Where("phone_number = ?", phone).Delete(&models.VerificationCode{})
+
 	return true, nil
 }
 
@@ -188,9 +170,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Store QR data in Redis for quick lookup (if Redis is available)
-	if h.db.Redis != nil {
-		h.db.Redis.Set(context.Background(), "qr:"+qrData, userID.Hex(), 0)
+	// Store QR data in PostgreSQL for quick lookup
+	if h.db.Postgres != nil {
+		qrCache := models.QRCodeCache{
+			QRData: qrData,
+			UserID: userID.Hex(),
+		}
+		// Delete existing entry if any
+		h.db.Postgres.Where("qr_data = ?", qrData).Delete(&models.QRCodeCache{})
+		// Insert new entry
+		h.db.Postgres.Create(&qrCache)
 	}
 
 	// Generate token
@@ -290,7 +279,7 @@ func (h *AuthHandler) SendCode(c *gin.Context) {
 	}
 	code := fmt.Sprintf("%06d", n.Int64())
 
-	// Store code with 5 minute expiration (Redis preferred, Mongo fallback)
+	// Store code with 5 minute expiration in PostgreSQL
 	if err := h.storeVerificationCode(context.Background(), req.PhoneNumber, code, 5*time.Minute); err != nil {
 		// If storage fails, we cannot safely verify later
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store verification code"})
@@ -302,8 +291,8 @@ func (h *AuthHandler) SendCode(c *gin.Context) {
 	if h.twilio != nil && h.twilio.IsEnabled() {
 		err = h.twilio.SendVerificationCode(req.PhoneNumber, code)
 		if err != nil {
-			// Log error but don't fail the request - code is still stored in Redis
-			fmt.Printf("Failed to send SMS via Twilio: %v\n", err)
+		// Log error but don't fail the request - code is still stored in PostgreSQL
+		fmt.Printf("Failed to send SMS via Twilio: %v\n", err)
 		} else {
 			twilioSent = true
 		}
@@ -451,9 +440,16 @@ func (h *AuthHandler) RegisterWithCode(c *gin.Context) {
 		return
 	}
 
-	// Store QR data in Redis (if available)
-	if h.db.Redis != nil {
-		h.db.Redis.Set(context.Background(), "qr:"+qrData, userID.Hex(), 0)
+	// Store QR data in PostgreSQL
+	if h.db.Postgres != nil {
+		qrCache := models.QRCodeCache{
+			QRData: qrData,
+			UserID: userID.Hex(),
+		}
+		// Delete existing entry if any
+		h.db.Postgres.Where("qr_data = ?", qrData).Delete(&models.QRCodeCache{})
+		// Insert new entry
+		h.db.Postgres.Create(&qrCache)
 	}
 
 	// Generate token

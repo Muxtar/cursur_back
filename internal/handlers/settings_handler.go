@@ -626,16 +626,10 @@ func (h *SettingsHandler) ClearCache(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDObj := userID.(primitive.ObjectID)
 
-	// Clear Redis cache for user
-	ctx := context.Background()
-	if h.db.Redis != nil {
-		pattern := "user:" + userIDObj.Hex() + ":*"
-		keys, err := h.db.Redis.Keys(ctx, pattern).Result()
-		if err == nil {
-			for _, key := range keys {
-				h.db.Redis.Del(ctx, key)
-			}
-		}
+	// Clear PostgreSQL cache entries for user
+	if h.db.Postgres != nil {
+		pattern := "user:" + userIDObj.Hex() + ":%"
+		h.db.Postgres.Where("key LIKE ?", pattern).Delete(&models.CacheEntry{})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Cache cleared"})

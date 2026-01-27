@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"chat-backend/internal/database"
+	"chat-backend/internal/models"
 	"chat-backend/internal/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -40,10 +41,22 @@ func (h *TypingHandler) SetTyping(c *gin.Context) {
 		return
 	}
 
-	// Store typing indicator in Redis (expires in 5 seconds) - if available
-	key := "typing:" + chatID.Hex() + ":" + userIDObj.Hex()
-	if h.db.Redis != nil {
-		h.db.Redis.Set(context.Background(), key, req.Type, 5*time.Second)
+	// Store typing indicator in PostgreSQL (expires in 5 seconds)
+	if h.db.Postgres != nil {
+		expiresAt := time.Now().Add(5 * time.Second)
+		
+		// Delete existing indicator for this chat/user combination
+		h.db.Postgres.Where("chat_id = ? AND user_id = ?", chatID.Hex(), userIDObj.Hex()).
+			Delete(&models.TypingIndicator{})
+		
+		// Create new indicator
+		indicator := models.TypingIndicator{
+			ChatID:    chatID.Hex(),
+			UserID:    userIDObj.Hex(),
+			Type:      req.Type,
+			ExpiresAt: expiresAt,
+		}
+		h.db.Postgres.Create(&indicator)
 	}
 
 	// Broadcast via WebSocket
@@ -60,37 +73,31 @@ func (h *TypingHandler) GetTyping(c *gin.Context) {
 		return
 	}
 
-	// Get all typing indicators for this chat
-	if h.db.Redis == nil {
+	// Get all typing indicators for this chat that haven't expired
+	if h.db.Postgres == nil {
 		c.JSON(http.StatusOK, gin.H{"typing": []interface{}{}})
 		return
 	}
 	
-	pattern := "typing:" + chatID.Hex() + ":*"
-	keys, err := h.db.Redis.Keys(context.Background(), pattern).Result()
+	var indicators []models.TypingIndicator
+	err := h.db.Postgres.Where("chat_id = ? AND expires_at > ?", chatID.Hex(), time.Now()).
+		Find(&indicators).Error
+	
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"typing": []interface{}{}})
 		return
 	}
 
 	var typingUsers []map[string]interface{}
-	for _, key := range keys {
-		typ, err := h.db.Redis.Get(context.Background(), key).Result()
-		if err != nil {
-			continue
-		}
-
-		// Extract user ID from key
-		// Format: typing:chatID:userID
-		userIDStr := key[len("typing:"+chatID.Hex()+":"):]
-		userID, err := primitive.ObjectIDFromHex(userIDStr)
+	for _, indicator := range indicators {
+		userID, err := primitive.ObjectIDFromHex(indicator.UserID)
 		if err != nil {
 			continue
 		}
 
 		typingUsers = append(typingUsers, map[string]interface{}{
 			"user_id": userID,
-			"type":    typ,
+			"type":    indicator.Type,
 		})
 	}
 
