@@ -58,9 +58,11 @@ func isOriginAllowed(origin string, allowedOrigins []string) bool {
 // 2. Validates origin against allowed list
 // 3. Sets Vary: Origin header for proper caching
 // 4. Only allows credentials when origin is explicitly allowed
+// 5. Sets CORS headers on ALL responses (not just OPTIONS)
 func CORSMiddleware() gin.HandlerFunc {
 	allowedOrigins := getAllowedOrigins()
 	log.Printf("🔧 CORS Middleware initialized with allowed origins: %v", allowedOrigins)
+	log.Println("✅ CORS middleware ACTIVE - preflight requests will be handled")
 	
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
@@ -95,7 +97,7 @@ func CORSMiddleware() gin.HandlerFunc {
 			}
 		}
 		
-		// Handle regular requests
+		// Handle regular requests - ALWAYS set CORS headers if origin is allowed
 		if isOriginAllowed(origin, allowedOrigins) {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Access-Control-Allow-Credentials", "true")
