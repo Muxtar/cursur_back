@@ -30,6 +30,15 @@ func Initialize(cfg *config.Config) *Database {
 	if err != nil {
 		log.Fatal("Failed to connect to MongoDB:", err)
 	}
+	
+	// Ping MongoDB to verify connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := mongoClient.Ping(ctx, nil); err != nil {
+		log.Fatal("Failed to ping MongoDB:", err)
+	}
+	log.Println("MongoDB connected successfully")
+	
 	db.MongoDB = mongoClient.Database(cfg.MongoDBName)
 
 	// Initialize Redis (optional - will retry with exponential backoff)

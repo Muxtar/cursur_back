@@ -117,6 +117,8 @@ func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code s
 		return false, nil
 	}
 	if err != nil {
+		// Log MongoDB error for debugging
+		fmt.Printf("Error finding verification code in MongoDB: %v\n", err)
 		return false, err
 	}
 	// Consume: delete all codes for that phone (prevent reuse)
@@ -332,8 +334,13 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 		return
 	}
 
-	ok, err := h.consumeVerificationCode(context.Background(), req.PhoneNumber, req.Code)
+	// Create context with timeout for database operations
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ok, err := h.consumeVerificationCode(ctx, req.PhoneNumber, req.Code)
 	if err != nil {
+		fmt.Printf("Error consuming verification code: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Verification lookup failed"})
 		return
 	}
@@ -345,7 +352,7 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 	// Find user
 	var user models.User
 	err = h.db.MongoDB.Collection("users").FindOne(
-		context.Background(),
+		ctx,
 		bson.M{"phone_number": req.PhoneNumber},
 	).Decode(&user)
 
@@ -355,7 +362,12 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		// Log the actual error for debugging
+		fmt.Printf("Error finding user in MongoDB: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Database error",
+			"details": err.Error(),
+		})
 		return
 	}
 
