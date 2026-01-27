@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"chat-backend/internal/config"
@@ -68,11 +69,33 @@ func Initialize(cfg *config.Config) *Database {
 	if lastErr != nil {
 		log.Printf("ERROR: Failed to connect to MongoDB after %d attempts: %v", maxRetries, lastErr)
 		log.Println("")
-		log.Println("Troubleshooting tips:")
-		log.Println("1. Check if MongoDB URI is correct (MONGODB_URI environment variable)")
-		log.Println("2. For Railway: Ensure MongoDB Atlas Network Access allows Railway IPs")
-		log.Println("3. If using mongodb+srv://, try using standard mongodb:// connection string")
-		log.Println("4. Check MongoDB Atlas cluster status")
+		
+		// Check if using mongodb+srv:// which often fails on Railway
+		if strings.Contains(cfg.MongoDBURI, "mongodb+srv://") {
+			log.Println("⚠️  DETECTED: You are using 'mongodb+srv://' connection string")
+			log.Println("⚠️  Railway often has DNS issues with mongodb+srv:// protocol")
+			log.Println("")
+			log.Println("✅ SOLUTION: Use standard 'mongodb://' connection string instead")
+			log.Println("")
+			log.Println("How to get standard connection string:")
+			log.Println("1. Go to MongoDB Atlas Dashboard")
+			log.Println("2. Click 'Connect' on your cluster")
+			log.Println("3. Select 'Connect your application'")
+			log.Println("4. Choose 'Standard connection string' (NOT SRV)")
+			log.Println("5. Copy the connection string")
+			log.Println("6. Format should be: mongodb://username:password@host1:port1,host2:port2/database?options")
+			log.Println("7. Update MONGODB_URI in Railway with this standard connection string")
+			log.Println("")
+			log.Println("Example standard format:")
+			log.Println("mongodb://user:pass@cluster0-shard-00-00.xxxxx.mongodb.net:27017,cluster0-shard-00-01.xxxxx.mongodb.net:27017/chat_app?ssl=true&replicaSet=atlas-xxxxx-shard-0&authSource=admin&retryWrites=true&w=majority")
+			log.Println("")
+		} else {
+			log.Println("Troubleshooting tips:")
+			log.Println("1. Check if MongoDB URI is correct (MONGODB_URI environment variable)")
+			log.Println("2. For Railway: Ensure MongoDB Atlas Network Access allows Railway IPs")
+			log.Println("3. Check MongoDB Atlas cluster status")
+			log.Println("4. Verify database name is correct")
+		}
 		log.Fatal("Cannot start application without MongoDB connection")
 	}
 	
