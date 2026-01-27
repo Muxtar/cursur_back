@@ -3,6 +3,7 @@ package config
 import (
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -97,14 +98,84 @@ func Load() *Config {
 	// Twilio configuration
 	twilioEnabled := getEnv("TWILIO_ENABLED", "false")
 	twilioEnabledBool := twilioEnabled == "true" || twilioEnabled == "1"
+
+	// Redis configuration
+	//
+	// Railway Redis service provides:
+	// - Private networking: redis.railway.internal:6379
+	// - Optional public proxy host:port (not needed for backend in same Railway env)
+	//
+	// Support both styles:
+	// 1) REDIS_HOST + REDIS_PORT + REDIS_PASSWORD (recommended)
+	// 2) REDIS_URL as:
+	//    - "redis://:password@host:port"
+	//    - "host:port"
+	//    - "host"
+	// Railway often provides both styles:
+	// - REDIS_HOST / REDIS_PORT / REDIS_PASSWORD
+	// - REDISHOST / REDISPORT / REDISPASSWORD
+	redisHost := getEnv("REDIS_HOST", getEnv("REDISHOST", ""))
+	redisPort := getEnv("REDIS_PORT", getEnv("REDISPORT", ""))
+	redisPassword := getEnv("REDIS_PASSWORD", getEnv("REDISPASSWORD", ""))
+
+	if redisHost == "" || redisPort == "" {
+		rawRedisURL := getEnv("REDIS_URL", "")
+		if rawRedisURL != "" {
+			// If it's a URL (redis://...), parse with net/url
+			if strings.Contains(rawRedisURL, "://") {
+				if u, err := url.Parse(rawRedisURL); err == nil {
+					if redisHost == "" {
+						redisHost = u.Hostname()
+					}
+					if redisPort == "" {
+						if p := u.Port(); p != "" {
+							redisPort = p
+						}
+					}
+					if redisPassword == "" && u.User != nil {
+						if pw, ok := u.User.Password(); ok {
+							redisPassword = pw
+						}
+					}
+				}
+			} else {
+				// Otherwise support "host:port" or "host"
+				host := rawRedisURL
+				port := ""
+				if strings.Contains(rawRedisURL, ":") {
+					parts := strings.Split(rawRedisURL, ":")
+					if len(parts) >= 2 {
+						host = strings.Join(parts[:len(parts)-1], ":")
+						port = parts[len(parts)-1]
+					}
+				}
+				if redisHost == "" {
+					redisHost = host
+				}
+				if redisPort == "" && port != "" {
+					// Validate it's numeric-ish; otherwise ignore
+					if _, err := strconv.Atoi(port); err == nil {
+						redisPort = port
+					}
+				}
+			}
+		}
+	}
+
+	if redisHost == "" {
+		redisHost = "localhost"
+	}
+	if redisPort == "" {
+		redisPort = "6379"
+	}
 	
 	return &Config{
 		Port:          getEnv("PORT", "8080"),
 		MongoDBURI:    mongoURI,
 		MongoDBName:   getEnv("MONGODB_DB", getEnv("MONGO_DATABASE", "chat_app")),
-		RedisHost:     getEnv("REDIS_HOST", getEnv("REDIS_URL", "localhost")),
-		RedisPort:     getEnv("REDIS_PORT", "6379"),
-		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+		RedisHost:     redisHost,
+		RedisPort:     redisPort,
+		RedisPassword: redisPassword,
 		PostgresHost:  postgresHost,
 		PostgresPort:  postgresPort,
 		PostgresUser:  postgresUser,

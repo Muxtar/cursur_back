@@ -63,6 +63,67 @@ type RegisterWithCodeRequest struct {
 	CompanyCategory string `json:"company_category,omitempty"`
 }
 
+// verificationCodeDoc stores phone verification codes.
+// Used as a fallback when Redis is not available.
+type verificationCodeDoc struct {
+	PhoneNumber string    `bson:"phone_number"`
+	Code        string    `bson:"code"`
+	ExpiresAt   time.Time `bson:"expires_at"`
+	CreatedAt   time.Time `bson:"created_at"`
+}
+
+func (h *AuthHandler) storeVerificationCode(ctx context.Context, phone, code string, ttl time.Duration) error {
+	expiresAt := time.Now().Add(ttl)
+	// Prefer Redis when available
+	if h.db.Redis != nil {
+		key := "verify_code:" + phone
+		return h.db.Redis.Set(ctx, key, code, ttl).Err()
+	}
+	// Fallback to MongoDB (works even without Redis; supports multi-instance)
+	doc := verificationCodeDoc{
+		PhoneNumber: phone,
+		Code:        code,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   time.Now(),
+	}
+	_, err := h.db.MongoDB.Collection("verification_codes").InsertOne(ctx, doc)
+	return err
+}
+
+func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code string) (bool, error) {
+	// Prefer Redis when available
+	if h.db.Redis != nil {
+		key := "verify_code:" + phone
+		storedCode, err := h.db.Redis.Get(ctx, key).Result()
+		if err != nil {
+			return false, nil // invalid/expired
+		}
+		if storedCode != code {
+			return false, nil
+		}
+		_ = h.db.Redis.Del(ctx, key).Err()
+		return true, nil
+	}
+
+	// Fallback to MongoDB: must match + not expired
+	now := time.Now()
+	filter := bson.M{
+		"phone_number": phone,
+		"code":         code,
+		"expires_at":   bson.M{"$gt": now},
+	}
+	err := h.db.MongoDB.Collection("verification_codes").FindOne(ctx, filter).Err()
+	if err == mongo.ErrNoDocuments {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	// Consume: delete all codes for that phone (prevent reuse)
+	_, _ = h.db.MongoDB.Collection("verification_codes").DeleteMany(ctx, bson.M{"phone_number": phone})
+	return true, nil
+}
+
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -229,10 +290,11 @@ func (h *AuthHandler) SendCode(c *gin.Context) {
 	}
 	code := fmt.Sprintf("%06d", n.Int64())
 
-	// Store code in Redis with 5 minute expiration (if Redis is available)
-	key := "verify_code:" + req.PhoneNumber
-	if h.db.Redis != nil {
-		h.db.Redis.Set(context.Background(), key, code, 5*time.Minute)
+	// Store code with 5 minute expiration (Redis preferred, Mongo fallback)
+	if err := h.storeVerificationCode(context.Background(), req.PhoneNumber, code, 5*time.Minute); err != nil {
+		// If storage fails, we cannot safely verify later
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store verification code"})
+		return
 	}
 
 	// Send SMS via Twilio
@@ -270,21 +332,13 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 		return
 	}
 
-	// Get code from Redis
-	key := "verify_code:" + req.PhoneNumber
-	if h.db.Redis == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Redis is not available. Please configure Redis or set REDIS_ENABLED=false"})
-		return
-	}
-	storedCode, err := h.db.Redis.Get(context.Background(), key).Result()
+	ok, err := h.consumeVerificationCode(context.Background(), req.PhoneNumber, req.Code)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired code"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Verification lookup failed"})
 		return
 	}
-
-	// Verify code
-	if storedCode != req.Code {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid code"})
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired code"})
 		return
 	}
 
@@ -303,11 +357,6 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
-	}
-
-	// Delete code from Redis (if available)
-	if h.db.Redis != nil {
-		h.db.Redis.Del(context.Background(), key)
 	}
 
 	// Generate token
@@ -350,15 +399,13 @@ func (h *AuthHandler) RegisterWithCode(c *gin.Context) {
 	}
 
 	// Verify code
-	key := "verify_code:" + req.PhoneNumber
-	storedCode, err := h.db.Redis.Get(context.Background(), key).Result()
+	ok, err := h.consumeVerificationCode(context.Background(), req.PhoneNumber, req.Code)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired code"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Verification lookup failed"})
 		return
 	}
-
-	if storedCode != req.Code {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid code"})
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired code"})
 		return
 	}
 
@@ -372,11 +419,6 @@ func (h *AuthHandler) RegisterWithCode(c *gin.Context) {
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
-	}
-
-	// Delete code from Redis (if available)
-	if h.db.Redis != nil {
-		h.db.Redis.Del(context.Background(), key)
 	}
 
 	// Generate QR code
