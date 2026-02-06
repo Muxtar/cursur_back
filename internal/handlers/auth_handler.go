@@ -92,8 +92,8 @@ func (h *AuthHandler) storeVerificationCode(ctx context.Context, phone, code str
 	return err
 }
 
-func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code string) (bool, error) {
-	// Check MongoDB: must match + not expired
+// checkVerificationCode checks if code is valid without consuming it
+func (h *AuthHandler) checkVerificationCode(ctx context.Context, phone, code string) (bool, error) {
 	now := time.Now()
 	filter := bson.M{
 		"phone_number": phone,
@@ -105,8 +105,17 @@ func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code s
 		return false, nil
 	}
 	if err != nil {
-		// Log MongoDB error for debugging
 		fmt.Printf("Error finding verification code in MongoDB: %v\n", err)
+		return false, err
+	}
+	return true, nil
+}
+
+// consumeVerificationCode checks and consumes (deletes) the verification code
+func (h *AuthHandler) consumeVerificationCode(ctx context.Context, phone, code string) (bool, error) {
+	// Check if code is valid
+	valid, err := h.checkVerificationCode(ctx, phone, code)
+	if !valid || err != nil {
 		return false, err
 	}
 	// Consume: delete all codes for that phone (prevent reuse)
@@ -321,6 +330,8 @@ func (h *AuthHandler) SendCode(c *gin.Context) {
 }
 
 // VerifyCode verifies the code for login
+// IMPORTANT: Kodu consume etmeden önce kullanıcıyı kontrol et
+// Eğer kullanıcı yoksa kodu consume etme (register-with-code için kullanılabilir kalmalı)
 func (h *AuthHandler) VerifyCode(c *gin.Context) {
 	var req VerifyCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -332,9 +343,10 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ok, err := h.consumeVerificationCode(ctx, req.PhoneNumber, req.Code)
+	// Önce kodu kontrol et (consume etme)
+	ok, err := h.checkVerificationCode(ctx, req.PhoneNumber, req.Code)
 	if err != nil {
-		fmt.Printf("Error consuming verification code: %v\n", err)
+		fmt.Printf("Error checking verification code: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Verification lookup failed"})
 		return
 	}
@@ -343,7 +355,7 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 		return
 	}
 
-	// Find user
+	// Kullanıcıyı kontrol et
 	var user models.User
 	err = h.db.MongoDB.Collection("users").FindOne(
 		ctx,
@@ -351,18 +363,25 @@ func (h *AuthHandler) VerifyCode(c *gin.Context) {
 	).Decode(&user)
 
 	if err == mongo.ErrNoDocuments {
+		// Kullanıcı yok - kodu consume etme, register-with-code için bırak
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found. Please register first."})
 		return
 	}
 
 	if err != nil {
-		// Log the actual error for debugging
 		fmt.Printf("Error finding user in MongoDB: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Database error",
 			"details": err.Error(),
 		})
 		return
+	}
+
+	// Kullanıcı bulundu - şimdi kodu consume et (başarılı login)
+	_, consumeErr := h.consumeVerificationCode(ctx, req.PhoneNumber, req.Code)
+	if consumeErr != nil {
+		fmt.Printf("Warning: Failed to consume verification code after successful login: %v\n", consumeErr)
+		// Devam et, kod zaten kontrol edildi
 	}
 
 	// Generate token
