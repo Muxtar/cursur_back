@@ -8,17 +8,18 @@ import (
 )
 
 type Config struct {
-	Port         string
-	MongoDBURI   string
-	MongoDBName  string
-	JWTSecret    string
-	JWTExpiration string
-	UploadDir    string
-	MaxFileSize  int64
-	TwilioAccountSID string
-	TwilioAuthToken  string
-	TwilioPhoneNumber string
-	TwilioEnabled     bool
+	Port               string
+	MongoDBURI         string
+	MongoDBName        string
+	JWTSecret          string
+	JWTExpiration      string
+	UploadDir          string
+	MaxFileSize        int64
+	CORSAllowedOrigins []string
+	TwilioAccountSID   string
+	TwilioAuthToken    string
+	TwilioPhoneNumber  string
+	TwilioEnabled      bool
 }
 
 func Load() *Config {
@@ -94,20 +95,41 @@ func Load() *Config {
 	
 	mongoDBName := getEnv("MONGODB_DB", getEnv("MONGO_DATABASE", "chat_app"))
 	log.Printf("MongoDB Database: %s", mongoDBName)
-	
+
+	// CORS: Railway'da front-end farklı domain'de olduğu için env'den oku
+	// Örnek: CORS_ALLOWED_ORIGINS=https://yourapp.up.railway.app,http://localhost:3000
+	corsOrigins := splitAndTrim(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ",")
+	if len(corsOrigins) == 0 {
+		corsOrigins = []string{"http://localhost:3000"}
+	}
+	log.Printf("CORS allowed origins: %v", corsOrigins)
+
 	return &Config{
-		Port:          getEnv("PORT", "8080"),
-		MongoDBURI:    mongoURI,
-		MongoDBName:   mongoDBName,
-		JWTSecret:     getEnv("JWT_SECRET", "your-secret-key"),
-		JWTExpiration: getEnv("JWT_EXPIRATION", "24h"),
-		UploadDir:     getEnv("UPLOAD_DIR", "./uploads"),
-		MaxFileSize:   10485760, // 10MB
-		TwilioAccountSID:  getEnv("TWILIO_ACCOUNT_SID", ""),
-		TwilioAuthToken:   getEnv("TWILIO_AUTH_TOKEN", ""),
-		TwilioPhoneNumber: getEnv("TWILIO_PHONE_NUMBER", ""),
+		Port:               getEnv("PORT", "8080"),
+		MongoDBURI:         mongoURI,
+		MongoDBName:        mongoDBName,
+		JWTSecret:           getEnv("JWT_SECRET", "your-secret-key"),
+		JWTExpiration:       getEnv("JWT_EXPIRATION", "24h"),
+		UploadDir:           getEnv("UPLOAD_DIR", "./uploads"),
+		MaxFileSize:         10485760, // 10MB
+		CORSAllowedOrigins:  corsOrigins,
+		TwilioAccountSID:   getEnv("TWILIO_ACCOUNT_SID", ""),
+		TwilioAuthToken:    getEnv("TWILIO_AUTH_TOKEN", ""),
+		TwilioPhoneNumber:  getEnv("TWILIO_PHONE_NUMBER", ""),
 		TwilioEnabled:      twilioEnabledBool,
 	}
+}
+
+func splitAndTrim(s, sep string) []string {
+	parts := strings.Split(s, sep)
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" && trimmed != "*" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func getEnv(key, defaultValue string) string {

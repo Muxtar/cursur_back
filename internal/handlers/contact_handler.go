@@ -26,6 +26,10 @@ type ScanQRRequest struct {
 	QRData string `json:"qr_data" binding:"required"`
 }
 
+type AddContactRequest struct {
+	UserID string `json:"user_id" binding:"required"`
+}
+
 func (h *ContactHandler) GetContacts(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDObj := userID.(primitive.ObjectID)
@@ -65,6 +69,78 @@ func (h *ContactHandler) GetContacts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, contactDetails)
+}
+
+// AddContact adds a contact by user_id (front-end Sidebar uses this).
+func (h *ContactHandler) AddContact(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	userIDObj := userID.(primitive.ObjectID)
+
+	var req AddContactRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	contactUserID, err := primitive.ObjectIDFromHex(req.UserID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	if contactUserID == userIDObj {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot add yourself as contact"})
+		return
+	}
+
+	// Check if contact user exists
+	var contactUser models.User
+	if err := h.db.MongoDB.Collection("users").FindOne(
+		context.Background(),
+		bson.M{"_id": contactUserID},
+	).Decode(&contactUser); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Check if contact already exists
+	var existingContact models.Contact
+	err = h.db.MongoDB.Collection("contacts").FindOne(
+		context.Background(),
+		bson.M{
+			"user_id":    userIDObj,
+			"contact_id": contactUserID,
+		},
+	).Decode(&existingContact)
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Contact already exists"})
+		return
+	}
+
+	contact := models.Contact{
+		ID:          primitive.NewObjectID(),
+		UserID:      userIDObj,
+		ContactID:   contactUserID,
+		ContactQR:   contactUser.QRCode,
+		IsAnonymous: false,
+		CreatedAt:   time.Now(),
+	}
+	if _, err := h.db.MongoDB.Collection("contacts").InsertOne(context.Background(), contact); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add contact"})
+		return
+	}
+	// Reverse contact
+	reverseContact := models.Contact{
+		ID:          primitive.NewObjectID(),
+		UserID:      contactUserID,
+		ContactID:   userIDObj,
+		ContactQR:   "",
+		IsAnonymous: false,
+		CreatedAt:   time.Now(),
+	}
+	h.db.MongoDB.Collection("contacts").InsertOne(context.Background(), reverseContact)
+
+	c.JSON(http.StatusCreated, contact)
 }
 
 func (h *ContactHandler) ScanQRCode(c *gin.Context) {

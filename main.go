@@ -82,9 +82,8 @@ func main() {
 	}
 
 	// ===== CORS CONFIGURATION =====
-	// CRITICAL: CORS middleware MUST be added BEFORE routes
-	// This ensures preflight (OPTIONS) requests are handled correctly
-	r.Use(middleware.CORSMiddleware())
+	// CORS origins from config (CORS_ALLOWED_ORIGINS env). Railway'da front-end URL'inizi ekleyin.
+	r.Use(middleware.CORSMiddleware(cfg))
 	log.Println("✅ CORS middleware configured and added to router")
 
 	// Catch-all OPTIONS so Gin never returns 404/405 for preflight.
@@ -122,5 +121,3 @@ func main() {
 		log.Fatal("Failed to start server:", err)
 	}
 }
-
-var a = 1

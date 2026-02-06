@@ -46,7 +46,11 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 }
 
 func (h *UserHandler) SearchByUsername(c *gin.Context) {
-	username := c.Query("username")
+	// Front-end sends "q", API can also use "username"
+	username := c.Query("q")
+	if username == "" {
+		username = c.Query("username")
+	}
 	if username == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Username required"})
 		return

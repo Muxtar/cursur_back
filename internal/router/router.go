@@ -62,6 +62,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 		contacts := protected.Group("/contacts")
 		{
 			contacts.GET("", contactHandler.GetContacts)
+			contacts.POST("", contactHandler.AddContact)
 			contacts.POST("/scan", contactHandler.ScanQRCode)
 			contacts.DELETE("/:contact_id", contactHandler.DeleteContact)
 		}
