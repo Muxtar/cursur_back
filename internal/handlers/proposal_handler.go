@@ -13,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+
 type ProposalHandler struct {
 	db *database.Database
 }
@@ -22,9 +23,10 @@ func NewProposalHandler(db *database.Database) *ProposalHandler {
 }
 
 type CreateProposalRequest struct {
-	ReceiverID string `json:"receiver_id" binding:"required"`
-	Title      string `json:"title" binding:"required"`
-	Content    string `json:"content" binding:"required"`
+	ReceiverID    string `json:"receiver_id" binding:"required"`
+	Title         string `json:"title" binding:"required"`
+	Content       string `json:"content" binding:"required"`
+	ChatAnonymous bool   `json:"chat_anonymous"` // when accepted, open chat as anonymous (sender hidden)
 }
 
 func (h *ProposalHandler) CreateProposal(c *gin.Context) {
@@ -44,14 +46,15 @@ func (h *ProposalHandler) CreateProposal(c *gin.Context) {
 	}
 
 	proposal := models.Proposal{
-		ID:         primitive.NewObjectID(),
-		SenderID:   userIDObj,
-		ReceiverID: receiverID,
-		Title:      req.Title,
-		Content:    req.Content,
-		Status:     "pending",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		ID:            primitive.NewObjectID(),
+		SenderID:      userIDObj,
+		ReceiverID:    receiverID,
+		Title:         req.Title,
+		Content:       req.Content,
+		Status:        "pending",
+		ChatAnonymous: req.ChatAnonymous,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	_, err = h.db.MongoDB.Collection("proposals").InsertOne(context.Background(), proposal)
@@ -124,13 +127,33 @@ func (h *ProposalHandler) AcceptProposal(c *gin.Context) {
 			"updated_at": time.Now(),
 		}},
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept proposal"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Proposal accepted"})
+	// Create direct chat between sender and receiver; sender is anonymous to receiver if ChatAnonymous
+	members := []primitive.ObjectID{proposal.SenderID, proposal.ReceiverID}
+	var anonymousFrom *primitive.ObjectID
+	if proposal.ChatAnonymous {
+		anonymousFrom = &proposal.SenderID
+	}
+	chat := models.Chat{
+		ID:                 primitive.NewObjectID(),
+		Type:               "direct",
+		Members:            members,
+		AnonymousFromUserID: anonymousFrom,
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
+	}
+	_, err = h.db.MongoDB.Collection("chats").InsertOne(context.Background(), chat)
+	if err != nil {
+		// Proposal already accepted; return success with chat_id if we can
+		c.JSON(http.StatusOK, gin.H{"message": "Proposal accepted", "chat_id": nil})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Proposal accepted", "chat_id": chat.ID.Hex()})
 }
 
 func (h *ProposalHandler) RejectProposal(c *gin.Context) {
