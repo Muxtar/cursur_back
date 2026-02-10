@@ -47,11 +47,22 @@ type Location struct {
 }
 
 type Contact struct {
-	ID          primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	UserID      primitive.ObjectID `json:"user_id" bson:"user_id"`
-	ContactID   primitive.ObjectID `json:"contact_id" bson:"contact_id"`
-	ContactQR   string            `json:"contact_qr" bson:"contact_qr"`
-	IsAnonymous bool              `json:"is_anonymous" bson:"is_anonymous"`
-	CreatedAt   time.Time         `json:"created_at" bson:"created_at"`
+	ID           primitive.ObjectID  `json:"id" bson:"_id,omitempty"`
+	UserID       primitive.ObjectID  `json:"user_id" bson:"user_id"`
+	ContactID    *primitive.ObjectID  `json:"contact_id,omitempty" bson:"contact_id,omitempty"` // nil when added by phone only
+	ContactQR    string              `json:"contact_qr" bson:"contact_qr"`
+	PhoneNumber  string              `json:"phone_number,omitempty" bson:"phone_number,omitempty"`   // when adding by number
+	DisplayName  string              `json:"display_name,omitempty" bson:"display_name,omitempty"`   // name given by user
+	IsAnonymous  bool                `json:"is_anonymous" bson:"is_anonymous"`
+	CreatedAt    time.Time           `json:"created_at" bson:"created_at"`
+}
+
+// ProfileComment: anonymous comment about a user; commenter can be contacted by profile owner via "reply"
+type ProfileComment struct {
+	ID             primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	TargetUserID   primitive.ObjectID `json:"target_user_id" bson:"target_user_id"`     // user being commented on
+	CommenterID    primitive.ObjectID `json:"-" bson:"commenter_id"`                  // not exposed in API
+	Text           string             `json:"text" bson:"text"`
+	CreatedAt      time.Time          `json:"created_at" bson:"created_at"`
 }
 

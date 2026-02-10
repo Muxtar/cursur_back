@@ -144,9 +144,10 @@ type LinkPreview struct {
 }
 
 type Chat struct {
-	ID        primitive.ObjectID   `json:"id" bson:"_id,omitempty"`
-	Type      string              `json:"type" bson:"type"` // direct, group, channel
-	Members   []primitive.ObjectID `json:"members" bson:"members"`
+	ID                 primitive.ObjectID   `json:"id" bson:"_id,omitempty"`
+	Type               string               `json:"type" bson:"type"` // direct, group, channel
+	Members            []primitive.ObjectID `json:"members" bson:"members"`
+	AnonymousFromUserID *primitive.ObjectID `json:"anonymous_from_user_id,omitempty" bson:"anonymous_from_user_id,omitempty"` // this user's identity hidden from others
 	Admins    []AdminRole         `json:"admins,omitempty" bson:"admins,omitempty"`
 	GroupName string              `json:"group_name,omitempty" bson:"group_name,omitempty"`
 	GroupIcon string              `json:"group_icon,omitempty" bson:"group_icon,omitempty"`

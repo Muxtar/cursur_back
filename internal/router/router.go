@@ -44,6 +44,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 		user := protected.Group("/users")
 		{
 			user.GET("/me", userHandler.GetMe)
+			user.GET("/profile/:id", userHandler.GetUserByID)
 			user.PUT("/me", userHandler.UpdateMe)
 			user.PUT("/location", userHandler.UpdateLocation)
 			user.GET("/nearby", userHandler.GetNearbyUsers)
@@ -65,6 +66,15 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			contacts.POST("", contactHandler.AddContact)
 			contacts.POST("/scan", contactHandler.ScanQRCode)
 			contacts.DELETE("/:contact_id", contactHandler.DeleteContact)
+		}
+
+		// Profile comments (anonymous comments about a user; profile owner can reply to commenter)
+		profileCommentHandler := handlers.NewProfileCommentHandler(db)
+		profileComments := protected.Group("/profile-comments")
+		{
+			profileComments.POST("", profileCommentHandler.CreateProfileComment)
+			profileComments.GET("", profileCommentHandler.GetProfileComments)
+			profileComments.POST("/:comment_id/reply", profileCommentHandler.ReplyToProfileComment)
 		}
 
 		// Chat routes

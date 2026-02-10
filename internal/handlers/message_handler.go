@@ -115,6 +115,10 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		}
 	}
 
+	isAnonymous := req.IsAnonymous
+	if err == nil && chat.AnonymousFromUserID != nil && *chat.AnonymousFromUserID == userIDObj {
+		isAnonymous = true
+	}
 	message := models.Message{
 		ID:          primitive.NewObjectID(),
 		ChatID:     chatID,
@@ -127,7 +131,7 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		FileSize:   req.FileSize,
 		Duration:   req.Duration,
 		Status:     "sent",
-		IsAnonymous: req.IsAnonymous,
+		IsAnonymous: isAnonymous,
 		IsSecret:   req.IsSecret,
 		SelfDestructTTL: req.SelfDestructTTL,
 		ReplyToID:  replyToID,

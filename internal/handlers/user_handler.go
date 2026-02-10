@@ -45,6 +45,31 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
+// GetUserByID returns public profile for a user (by id). Used for profile page.
+func (h *UserHandler) GetUserByID(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userIDObj, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	var user models.User
+	err = h.db.MongoDB.Collection("users").FindOne(
+		context.Background(),
+		bson.M{"_id": userIDObj},
+	).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	if user.HidePhoneNumber {
+		user.PhoneNumber = ""
+	}
+	c.JSON(http.StatusOK, user)
+}
+
 func (h *UserHandler) SearchByUsername(c *gin.Context) {
 	// Front-end sends "q", API can also use "username"
 	username := c.Query("q")

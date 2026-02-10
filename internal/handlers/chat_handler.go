@@ -24,9 +24,10 @@ func NewChatHandler(db *database.Database, hub *websocket.Hub) *ChatHandler {
 }
 
 type CreateChatRequest struct {
-	Type      string   `json:"type" binding:"required"` // direct, group
-	MemberIDs []string `json:"member_ids"`
-	GroupName string   `json:"group_name,omitempty"`
+	Type         string   `json:"type" binding:"required"` // direct, group
+	MemberIDs    []string `json:"member_ids"`
+	GroupName    string   `json:"group_name,omitempty"`
+	IsAnonymous  bool     `json:"is_anonymous"` // current user's identity hidden from others
 }
 
 // SendMessage is now handled by MessageHandler
@@ -39,7 +40,6 @@ func (h *ChatHandler) GetChats(c *gin.Context) {
 		context.Background(),
 		bson.M{"members": userIDObj},
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch chats"})
 		return
@@ -52,7 +52,25 @@ func (h *ChatHandler) GetChats(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, chats)
+	// Enrich: for direct chats, set other_party_anonymous when the other member is anonymous to current user
+	out := make([]map[string]interface{}, 0, len(chats))
+	for _, ch := range chats {
+		m := map[string]interface{}{
+			"id":         ch.ID,
+			"type":       ch.Type,
+			"members":    ch.Members,
+			"group_name": ch.GroupName,
+			"created_at": ch.CreatedAt,
+			"updated_at": ch.UpdatedAt,
+		}
+		if ch.Type == "direct" && ch.AnonymousFromUserID != nil && len(ch.Members) == 2 {
+			// The other party is anonymous to me if AnonymousFromUserID is the other user (not me)
+			otherIsAnonymous := *ch.AnonymousFromUserID != userIDObj
+			m["other_party_anonymous"] = otherIsAnonymous
+		}
+		out = append(out, m)
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 func (h *ChatHandler) CreateChat(c *gin.Context) {
@@ -74,13 +92,19 @@ func (h *ChatHandler) CreateChat(c *gin.Context) {
 		members = append(members, memberID)
 	}
 
+	var anonymousFrom *primitive.ObjectID
+	if req.IsAnonymous && req.Type == "direct" {
+		anonymousFrom = &userIDObj
+	}
+
 	chat := models.Chat{
-		ID:        primitive.NewObjectID(),
-		Type:      req.Type,
-		Members:   members,
-		GroupName: req.GroupName,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:                 primitive.NewObjectID(),
+		Type:               req.Type,
+		Members:            members,
+		GroupName:          req.GroupName,
+		AnonymousFromUserID: anonymousFrom,
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
 	}
 
 	_, err := h.db.MongoDB.Collection("chats").InsertOne(context.Background(), chat)
@@ -93,6 +117,9 @@ func (h *ChatHandler) CreateChat(c *gin.Context) {
 }
 
 func (h *ChatHandler) GetChat(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	userIDObj := userID.(primitive.ObjectID)
+
 	chatIDStr := c.Param("chat_id")
 	chatID, err := primitive.ObjectIDFromHex(chatIDStr)
 	if err != nil {
@@ -105,16 +132,29 @@ func (h *ChatHandler) GetChat(c *gin.Context) {
 		context.Background(),
 		bson.M{"_id": chatID},
 	).Decode(&chat)
-
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Chat not found"})
 		return
 	}
 
-	c.JSON(http.StatusOK, chat)
+	out := map[string]interface{}{
+		"id":         chat.ID,
+		"type":       chat.Type,
+		"members":    chat.Members,
+		"group_name": chat.GroupName,
+		"created_at": chat.CreatedAt,
+		"updated_at": chat.UpdatedAt,
+	}
+	if chat.Type == "direct" && chat.AnonymousFromUserID != nil && len(chat.Members) == 2 {
+		out["other_party_anonymous"] = *chat.AnonymousFromUserID != userIDObj
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 func (h *ChatHandler) GetMessages(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	userIDObj := userID.(primitive.ObjectID)
+
 	chatIDStr := c.Param("chat_id")
 	chatID, err := primitive.ObjectIDFromHex(chatIDStr)
 	if err != nil {
@@ -122,14 +162,22 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
+	var chat models.Chat
+	if err := h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": chatID},
+	).Decode(&chat); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chat not found"})
+		return
+	}
+
 	cursor, err := h.db.MongoDB.Collection("messages").Find(
 		context.Background(),
 		bson.M{
-			"chat_id":   chatID,
+			"chat_id":    chatID,
 			"is_deleted": false,
 		},
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
 		return
@@ -142,7 +190,27 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, messages)
+	// Mask anonymous sender for the recipient (do not expose sender_id when chat has AnonymousFromUserID)
+	var out []map[string]interface{}
+	for _, m := range messages {
+		raw := map[string]interface{}{
+			"id":            m.ID,
+			"chat_id":       m.ChatID,
+			"sender_id":     m.SenderID,
+			"content":       m.Content,
+			"message_type": m.MessageType,
+			"is_anonymous": m.IsAnonymous,
+			"status":        m.Status,
+			"created_at":    m.CreatedAt,
+			"updated_at":    m.UpdatedAt,
+		}
+		if chat.AnonymousFromUserID != nil && m.SenderID == *chat.AnonymousFromUserID && m.SenderID != userIDObj {
+			raw["sender_id"] = nil
+			raw["is_anonymous"] = true
+		}
+		out = append(out, raw)
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // SendMessage is now handled by MessageHandler.SendMessage

@@ -27,7 +27,9 @@ type ScanQRRequest struct {
 }
 
 type AddContactRequest struct {
-	UserID string `json:"user_id" binding:"required"`
+	UserID       string `json:"user_id"`        // optional when phone_number+display_name given
+	PhoneNumber  string `json:"phone_number"`   // add by number
+	DisplayName  string `json:"display_name"`   // name for the contact
 }
 
 func (h *ContactHandler) GetContacts(c *gin.Context) {
@@ -51,19 +53,31 @@ func (h *ContactHandler) GetContacts(c *gin.Context) {
 		return
 	}
 
-	// Fetch user details for each contact
+	// Fetch user details for each contact (or use phone_number/display_name for external contacts)
 	var contactDetails []map[string]interface{}
 	for _, contact := range contacts {
-		var user models.User
-		err := h.db.MongoDB.Collection("users").FindOne(
-			context.Background(),
-			bson.M{"_id": contact.ContactID},
-		).Decode(&user)
-
-		if err == nil {
+		if contact.ContactID != nil {
+			var user models.User
+			err := h.db.MongoDB.Collection("users").FindOne(
+				context.Background(),
+				bson.M{"_id": *contact.ContactID},
+			).Decode(&user)
+			if err == nil {
+				contactDetails = append(contactDetails, map[string]interface{}{
+					"contact": contact,
+					"user":    user,
+				})
+			}
+		} else {
+			// External contact (added by phone + name only)
 			contactDetails = append(contactDetails, map[string]interface{}{
 				"contact": contact,
-				"user":    user,
+				"user": map[string]interface{}{
+					"id":            nil,
+					"phone_number":  contact.PhoneNumber,
+					"username":      contact.DisplayName,
+					"display_name":  contact.DisplayName,
+				},
 			})
 		}
 	}
@@ -71,7 +85,7 @@ func (h *ContactHandler) GetContacts(c *gin.Context) {
 	c.JSON(http.StatusOK, contactDetails)
 }
 
-// AddContact adds a contact by user_id (front-end Sidebar uses this).
+// AddContact adds a contact by user_id OR by phone_number + display_name.
 func (h *ContactHandler) AddContact(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDObj := userID.(primitive.ObjectID)
@@ -82,18 +96,102 @@ func (h *ContactHandler) AddContact(c *gin.Context) {
 		return
 	}
 
+	// Add by phone_number + display_name
+	if req.PhoneNumber != "" {
+		phone := normalizePhone(req.PhoneNumber)
+		if phone == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid phone number"})
+			return
+		}
+		// Check if already in contacts (by phone or by user)
+		var existing models.Contact
+		err := h.db.MongoDB.Collection("contacts").FindOne(
+			context.Background(),
+			bson.M{"user_id": userIDObj, "phone_number": phone},
+		).Decode(&existing)
+		if err == nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "Contact already exists"})
+			return
+		}
+		var contactUser models.User
+		err = h.db.MongoDB.Collection("users").FindOne(
+			context.Background(),
+			bson.M{"phone_number": phone},
+		).Decode(&contactUser)
+		displayName := req.DisplayName
+		if displayName == "" {
+			displayName = phone
+		}
+		if err != nil {
+			// User not registered: add as external contact (no ContactID)
+			contact := models.Contact{
+				ID:          primitive.NewObjectID(),
+				UserID:      userIDObj,
+				ContactID:   nil,
+				PhoneNumber: phone,
+				DisplayName: displayName,
+				IsAnonymous: false,
+				CreatedAt:   time.Now(),
+			}
+			if _, err := h.db.MongoDB.Collection("contacts").InsertOne(context.Background(), contact); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add contact"})
+				return
+			}
+			c.JSON(http.StatusCreated, contact)
+			return
+		}
+		// User registered: add with ContactID
+		if contactUser.ID == userIDObj {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot add yourself as contact"})
+			return
+		}
+		err = h.db.MongoDB.Collection("contacts").FindOne(
+			context.Background(),
+			bson.M{"user_id": userIDObj, "contact_id": contactUser.ID},
+		).Decode(&existing)
+		if err == nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "Contact already exists"})
+			return
+		}
+		contact := models.Contact{
+			ID:          primitive.NewObjectID(),
+			UserID:      userIDObj,
+			ContactID:   &contactUser.ID,
+			ContactQR:   contactUser.QRCode,
+			DisplayName: displayName,
+			IsAnonymous: false,
+			CreatedAt:   time.Now(),
+		}
+		if _, err := h.db.MongoDB.Collection("contacts").InsertOne(context.Background(), contact); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add contact"})
+			return
+		}
+		reverseContact := models.Contact{
+			ID:          primitive.NewObjectID(),
+			UserID:      contactUser.ID,
+			ContactID:   &userIDObj,
+			IsAnonymous: false,
+			CreatedAt:   time.Now(),
+		}
+		h.db.MongoDB.Collection("contacts").InsertOne(context.Background(), reverseContact)
+		c.JSON(http.StatusCreated, contact)
+		return
+	}
+
+	// Add by user_id (existing flow)
+	if req.UserID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Provide user_id or phone_number + display_name"})
+		return
+	}
 	contactUserID, err := primitive.ObjectIDFromHex(req.UserID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
-
 	if contactUserID == userIDObj {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot add yourself as contact"})
 		return
 	}
-
-	// Check if contact user exists
 	var contactUser models.User
 	if err := h.db.MongoDB.Collection("users").FindOne(
 		context.Background(),
@@ -102,45 +200,46 @@ func (h *ContactHandler) AddContact(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
-
-	// Check if contact already exists
 	var existingContact models.Contact
 	err = h.db.MongoDB.Collection("contacts").FindOne(
 		context.Background(),
-		bson.M{
-			"user_id":    userIDObj,
-			"contact_id": contactUserID,
-		},
+		bson.M{"user_id": userIDObj, "contact_id": contactUserID},
 	).Decode(&existingContact)
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Contact already exists"})
 		return
 	}
-
 	contact := models.Contact{
-		ID:          primitive.NewObjectID(),
-		UserID:      userIDObj,
-		ContactID:   contactUserID,
-		ContactQR:   contactUser.QRCode,
+		ID:         primitive.NewObjectID(),
+		UserID:     userIDObj,
+		ContactID:  &contactUserID,
+		ContactQR:  contactUser.QRCode,
 		IsAnonymous: false,
-		CreatedAt:   time.Now(),
+		CreatedAt:  time.Now(),
 	}
 	if _, err := h.db.MongoDB.Collection("contacts").InsertOne(context.Background(), contact); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add contact"})
 		return
 	}
-	// Reverse contact
 	reverseContact := models.Contact{
 		ID:          primitive.NewObjectID(),
 		UserID:      contactUserID,
-		ContactID:   userIDObj,
-		ContactQR:   "",
+		ContactID:   &userIDObj,
 		IsAnonymous: false,
 		CreatedAt:   time.Now(),
 	}
 	h.db.MongoDB.Collection("contacts").InsertOne(context.Background(), reverseContact)
-
 	c.JSON(http.StatusCreated, contact)
+}
+
+func normalizePhone(s string) string {
+	var out []rune
+	for _, r := range s {
+		if r >= '0' && r <= '9' || r == '+' {
+			out = append(out, r)
+		}
+	}
+	return string(out)
 }
 
 func (h *ContactHandler) ScanQRCode(c *gin.Context) {
@@ -181,11 +280,11 @@ func (h *ContactHandler) ScanQRCode(c *gin.Context) {
 		return
 	}
 
-	// Create contact
+	contactUserIDPtr := &contactUserID
 	contact := models.Contact{
 		ID:          primitive.NewObjectID(),
 		UserID:      userIDObj,
-		ContactID:   contactUserID,
+		ContactID:   contactUserIDPtr,
 		ContactQR:   req.QRData,
 		IsAnonymous: false,
 		CreatedAt:   time.Now(),
@@ -197,12 +296,12 @@ func (h *ContactHandler) ScanQRCode(c *gin.Context) {
 		return
 	}
 
-	// Also create reverse contact (bidirectional)
+	userIDObjPtr := &userIDObj
 	reverseContact := models.Contact{
 		ID:          primitive.NewObjectID(),
 		UserID:      contactUserID,
-		ContactID:   userIDObj,
-		ContactQR:   "", // Will be generated if needed
+		ContactID:   userIDObjPtr,
+		ContactQR:   "",
 		IsAnonymous: false,
 		CreatedAt:   time.Now(),
 	}
@@ -222,24 +321,30 @@ func (h *ContactHandler) DeleteContact(c *gin.Context) {
 		return
 	}
 
+	// Try delete by contact record _id first (for external contacts or when frontend sends contact.id)
 	result, err := h.db.MongoDB.Collection("contacts").DeleteOne(
 		context.Background(),
-		bson.M{
-			"user_id":    userIDObj,
-			"contact_id": contactID,
-		},
+		bson.M{"_id": contactID, "user_id": userIDObj},
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete contact"})
 		return
 	}
-
+	if result.DeletedCount == 0 {
+		// Else treat as "other user" id (contact_id)
+		result, err = h.db.MongoDB.Collection("contacts").DeleteOne(
+			context.Background(),
+			bson.M{"user_id": userIDObj, "contact_id": contactID},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete contact"})
+			return
+		}
+	}
 	if result.DeletedCount == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Contact not found"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Contact deleted successfully"})
 }
 
