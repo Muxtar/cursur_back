@@ -25,26 +25,26 @@ func NewMessageHandler(db *database.Database, hub *websocket.Hub) *MessageHandle
 }
 
 type SendMessageRequest struct {
-	Content         string    `json:"content"`
-	MessageType     string    `json:"message_type" binding:"required"`
-	FileURL         string    `json:"file_url,omitempty"`
-	ThumbnailURL    string    `json:"thumbnail_url,omitempty"`
-	FileName        string    `json:"file_name,omitempty"`
-	FileSize        int64     `json:"file_size,omitempty"`
-	Duration        int       `json:"duration,omitempty"`
-	IsAnonymous     bool      `json:"is_anonymous"`
-	IsSecret        bool      `json:"is_secret"`
-	SelfDestructTTL int       `json:"self_destruct_ttl,omitempty"`
-	ReplyToID       string    `json:"reply_to_id,omitempty"`
-	Location        *models.MessageLocation `json:"location,omitempty"`
-	Contact         *models.ContactInfo `json:"contact,omitempty"`
-	Poll            *models.Poll `json:"poll,omitempty"`
-	Mentions        []string  `json:"mentions,omitempty"`
+	Content         string                    `json:"content"`
+	MessageType     string                    `json:"message_type" binding:"required"`
+	FileURL         string                    `json:"file_url,omitempty"`
+	ThumbnailURL    string                    `json:"thumbnail_url,omitempty"`
+	FileName        string                    `json:"file_name,omitempty"`
+	FileSize        int64                     `json:"file_size,omitempty"`
+	Duration        int                       `json:"duration,omitempty"`
+	IsAnonymous     bool                      `json:"is_anonymous"`
+	IsSecret        bool                      `json:"is_secret"`
+	SelfDestructTTL int                       `json:"self_destruct_ttl,omitempty"`
+	ReplyToID       string                    `json:"reply_to_id,omitempty"`
+	Location        *models.MessageLocation   `json:"location,omitempty"`
+	Contact         *models.ContactInfo       `json:"contact,omitempty"`
+	Poll            *models.Poll              `json:"poll,omitempty"`
+	Mentions        []string                  `json:"mentions,omitempty"`
 	Formatting      *models.MessageFormatting `json:"formatting,omitempty"`
-	LinkPreview     *models.LinkPreview `json:"link_preview,omitempty"`
-	ScheduledFor    *time.Time `json:"scheduled_for,omitempty"`
-	IsDraft         bool      `json:"is_draft"`
-	BotCommand      string    `json:"bot_command,omitempty"`
+	LinkPreview     *models.LinkPreview       `json:"link_preview,omitempty"`
+	ScheduledFor    *time.Time                `json:"scheduled_for,omitempty"`
+	IsDraft         bool                      `json:"is_draft"`
+	BotCommand      string                    `json:"bot_command,omitempty"`
 }
 
 func (h *MessageHandler) SendMessage(c *gin.Context) {
@@ -62,7 +62,7 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 			chatIDStr = body.ChatID
 		}
 	}
-	
+
 	chatID, err := primitive.ObjectIDFromHex(chatIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid chat ID"})
@@ -89,7 +89,7 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 			if timeSinceLastMessage < time.Duration(chat.SlowMode)*time.Second {
 				remaining := chat.SlowMode - int(timeSinceLastMessage.Seconds())
 				c.JSON(http.StatusTooManyRequests, gin.H{
-					"error": "Slow mode active",
+					"error":             "Slow mode active",
 					"remaining_seconds": remaining,
 				})
 				return
@@ -120,32 +120,32 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		isAnonymous = true
 	}
 	message := models.Message{
-		ID:          primitive.NewObjectID(),
-		ChatID:     chatID,
-		SenderID:   userIDObj,
-		Content:    req.Content,
-		MessageType: req.MessageType,
-		FileURL:    req.FileURL,
-		ThumbnailURL: req.ThumbnailURL,
-		FileName:   req.FileName,
-		FileSize:   req.FileSize,
-		Duration:   req.Duration,
-		Status:     "sent",
-		IsAnonymous: isAnonymous,
-		IsSecret:   req.IsSecret,
+		ID:              primitive.NewObjectID(),
+		ChatID:          chatID,
+		SenderID:        userIDObj,
+		Content:         req.Content,
+		MessageType:     req.MessageType,
+		FileURL:         req.FileURL,
+		ThumbnailURL:    req.ThumbnailURL,
+		FileName:        req.FileName,
+		FileSize:        req.FileSize,
+		Duration:        req.Duration,
+		Status:          "sent",
+		IsAnonymous:     isAnonymous,
+		IsSecret:        req.IsSecret,
 		SelfDestructTTL: req.SelfDestructTTL,
-		ReplyToID:  replyToID,
-		Location:    req.Location,
-		Contact:     req.Contact,
-		Poll:        req.Poll,
-		Mentions:    mentions,
-		Formatting:  *req.Formatting,
-		LinkPreview: req.LinkPreview,
-		ScheduledFor: req.ScheduledFor,
-		IsDraft:     req.IsDraft,
-		BotCommand:  req.BotCommand,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ReplyToID:       replyToID,
+		Location:        req.Location,
+		Contact:         req.Contact,
+		Poll:            req.Poll,
+		Mentions:        mentions,
+		Formatting:      *req.Formatting,
+		LinkPreview:     req.LinkPreview,
+		ScheduledFor:    req.ScheduledFor,
+		IsDraft:         req.IsDraft,
+		BotCommand:      req.BotCommand,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 
 	// If scheduled, don't send immediately
@@ -168,7 +168,7 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		bson.M{"$set": bson.M{
 			"last_message_id": message.ID,
 			"last_message_at": time.Now(),
-			"updated_at": time.Now(),
+			"updated_at":      time.Now(),
 		}},
 	)
 
@@ -293,7 +293,7 @@ func (h *MessageHandler) DeleteMessage(c *gin.Context) {
 			deletedFor = message.DeletedFor
 		}
 		deletedFor = append(deletedFor, userIDObj)
-		
+
 		_, err = h.db.MongoDB.Collection("messages").UpdateOne(
 			context.Background(),
 			bson.M{"_id": messageID},
@@ -352,24 +352,24 @@ func (h *MessageHandler) ForwardMessage(c *gin.Context) {
 		}
 
 		forwardedMessage := models.Message{
-			ID:              primitive.NewObjectID(),
-			ChatID:         chatID,
-			SenderID:       userIDObj,
-			Content:        originalMessage.Content,
-			MessageType:    originalMessage.MessageType,
-			FileURL:        originalMessage.FileURL,
-			ThumbnailURL:   originalMessage.ThumbnailURL,
-			FileName:       originalMessage.FileName,
-			FileSize:       originalMessage.FileSize,
-			Duration:       originalMessage.Duration,
-			Status:         "sent",
-			ForwardedFrom:   &originalMessage.ID,
+			ID:                primitive.NewObjectID(),
+			ChatID:            chatID,
+			SenderID:          userIDObj,
+			Content:           originalMessage.Content,
+			MessageType:       originalMessage.MessageType,
+			FileURL:           originalMessage.FileURL,
+			ThumbnailURL:      originalMessage.ThumbnailURL,
+			FileName:          originalMessage.FileName,
+			FileSize:          originalMessage.FileSize,
+			Duration:          originalMessage.Duration,
+			Status:            "sent",
+			ForwardedFrom:     &originalMessage.ID,
 			ForwardedFromChat: &originalMessage.ChatID,
-			Location:        originalMessage.Location,
-			Contact:         originalMessage.Contact,
-			Poll:            originalMessage.Poll,
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
+			Location:          originalMessage.Location,
+			Contact:           originalMessage.Contact,
+			Poll:              originalMessage.Poll,
+			CreatedAt:         time.Now(),
+			UpdatedAt:         time.Now(),
 		}
 
 		_, err = h.db.MongoDB.Collection("messages").InsertOne(context.Background(), forwardedMessage)
@@ -431,7 +431,7 @@ func (h *MessageHandler) AddReaction(c *gin.Context) {
 		context.Background(),
 		bson.M{"_id": messageID},
 		bson.M{"$set": bson.M{
-			"reactions": reactions,
+			"reactions":  reactions,
 			"updated_at": time.Now(),
 		}},
 	)
@@ -479,7 +479,7 @@ func (h *MessageHandler) RemoveReaction(c *gin.Context) {
 		context.Background(),
 		bson.M{"_id": messageID},
 		bson.M{"$set": bson.M{
-			"reactions": reactions,
+			"reactions":  reactions,
 			"updated_at": time.Now(),
 		}},
 	)
@@ -555,8 +555,8 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 					context.Background(),
 					bson.M{"_id": messageID},
 					bson.M{"$set": bson.M{
-						"read_by": readBy,
-						"status":  status,
+						"read_by":    readBy,
+						"status":     status,
 						"updated_at": time.Now(),
 					}},
 				)
@@ -567,8 +567,8 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 		cursor, err := h.db.MongoDB.Collection("messages").Find(
 			context.Background(),
 			bson.M{
-				"chat_id": chatID,
-				"sender_id": bson.M{"$ne": userIDObj},
+				"chat_id":         chatID,
+				"sender_id":       bson.M{"$ne": userIDObj},
 				"read_by.user_id": bson.M{"$ne": userIDObj},
 			},
 		)
@@ -591,8 +591,8 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 					context.Background(),
 					bson.M{"_id": message.ID},
 					bson.M{"$set": bson.M{
-						"read_by": readBy,
-						"status":  "read",
+						"read_by":    readBy,
+						"status":     "read",
 						"updated_at": time.Now(),
 					}},
 				)
@@ -632,8 +632,8 @@ func (h *MessageHandler) PinMessage(c *gin.Context) {
 		context.Background(),
 		bson.M{"_id": messageID},
 		bson.M{"$set": bson.M{
-			"is_pinned": true,
-			"pinned_at": time.Now(),
+			"is_pinned":  true,
+			"pinned_at":  time.Now(),
 			"updated_at": time.Now(),
 		}},
 	)
@@ -648,7 +648,7 @@ func (h *MessageHandler) PinMessage(c *gin.Context) {
 	if err == nil {
 		pinnedMessages := chat.PinnedMessages
 		pinnedMessages = append(pinnedMessages, messageID)
-		
+
 		_, err = h.db.MongoDB.Collection("chats").UpdateOne(
 			context.Background(),
 			bson.M{"_id": chatID},
@@ -681,8 +681,8 @@ func (h *MessageHandler) UnpinMessage(c *gin.Context) {
 		context.Background(),
 		bson.M{"_id": messageID},
 		bson.M{"$set": bson.M{
-			"is_pinned": false,
-			"pinned_at": nil,
+			"is_pinned":  false,
+			"pinned_at":  nil,
 			"updated_at": time.Now(),
 		}},
 	)
@@ -701,7 +701,7 @@ func (h *MessageHandler) UnpinMessage(c *gin.Context) {
 				pinnedMessages = append(pinnedMessages, id)
 			}
 		}
-		
+
 		_, err = h.db.MongoDB.Collection("chats").UpdateOne(
 			context.Background(),
 			bson.M{"_id": chatID},
@@ -767,7 +767,7 @@ func (h *MessageHandler) VotePoll(c *gin.Context) {
 		context.Background(),
 		bson.M{"_id": messageID},
 		bson.M{"$set": bson.M{
-			"poll": message.Poll,
+			"poll":       message.Poll,
 			"updated_at": time.Now(),
 		}},
 	)
@@ -805,7 +805,7 @@ func (h *MessageHandler) SearchMessages(c *gin.Context) {
 			{"content": bson.M{"$regex": query, "$options": "i"}},
 			{"file_name": bson.M{"$regex": query, "$options": "i"}},
 		},
-		"is_deleted": false,
+		"is_deleted":  false,
 		"deleted_for": bson.M{"$ne": userIDObj},
 	}
 
@@ -867,8 +867,8 @@ func (h *MessageHandler) TranslateMessage(c *gin.Context) {
 		bson.M{"_id": messageID},
 		bson.M{"$set": bson.M{
 			"translated_text": translatedText,
-			"translated_to": targetLang,
-			"updated_at": time.Now(),
+			"translated_to":   targetLang,
+			"updated_at":      time.Now(),
 		}},
 	)
 
@@ -879,4 +879,3 @@ func (h *MessageHandler) TranslateMessage(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"translated_text": translatedText})
 }
-

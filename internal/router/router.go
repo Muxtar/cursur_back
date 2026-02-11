@@ -21,7 +21,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 	twilioService := utils.NewTwilioService(cfg)
 
 	api := r.Group("/api/v1")
-	
+
 	// Auth routes
 	auth := api.Group("/auth")
 	{
@@ -51,7 +51,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			user.GET("/search", userHandler.SearchByUsername)
 			user.GET("/devices", userHandler.GetDevices)
 		}
-		
+
 		// Public user search (no auth required for username search)
 		public := api.Group("/public")
 		{
@@ -227,4 +227,3 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 		websocket.HandleWebSocket(hub, c, db)
 	})
 }
-

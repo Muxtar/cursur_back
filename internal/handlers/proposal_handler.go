@@ -13,7 +13,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-
 type ProposalHandler struct {
 	db *database.Database
 }
@@ -139,12 +138,12 @@ func (h *ProposalHandler) AcceptProposal(c *gin.Context) {
 		anonymousFrom = &proposal.SenderID
 	}
 	chat := models.Chat{
-		ID:                 primitive.NewObjectID(),
-		Type:               "direct",
-		Members:            members,
+		ID:                  primitive.NewObjectID(),
+		Type:                "direct",
+		Members:             members,
 		AnonymousFromUserID: anonymousFrom,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		CreatedAt:           time.Now(),
+		UpdatedAt:           time.Now(),
 	}
 	_, err = h.db.MongoDB.Collection("chats").InsertOne(context.Background(), chat)
 	if err != nil {
@@ -195,8 +194,3 @@ func (h *ProposalHandler) RejectProposal(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Proposal rejected"})
 }
-
-
-
-
-

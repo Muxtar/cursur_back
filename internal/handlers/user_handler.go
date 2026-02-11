@@ -169,7 +169,7 @@ func (h *UserHandler) UpdateLocation(c *gin.Context) {
 		context.Background(),
 		bson.M{"_id": userIDObj},
 		bson.M{"$set": bson.M{
-			"location":  location,
+			"location":   location,
 			"updated_at": time.Now(),
 		}},
 	)
@@ -208,7 +208,7 @@ func (h *UserHandler) GetNearbyUsers(c *gin.Context) {
 	cursor, err := h.db.MongoDB.Collection("users").Find(
 		context.Background(),
 		bson.M{
-			"_id": bson.M{"$ne": userIDObj},
+			"_id":      bson.M{"$ne": userIDObj},
 			"location": bson.M{"$exists": true},
 		},
 	)
@@ -238,4 +238,3 @@ func (h *UserHandler) GetNearbyUsers(c *gin.Context) {
 
 	c.JSON(http.StatusOK, nearbyUsers)
 }
-

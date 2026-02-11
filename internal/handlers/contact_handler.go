@@ -27,9 +27,9 @@ type ScanQRRequest struct {
 }
 
 type AddContactRequest struct {
-	UserID       string `json:"user_id"`        // optional when phone_number+display_name given
-	PhoneNumber  string `json:"phone_number"`   // add by number
-	DisplayName  string `json:"display_name"`   // name for the contact
+	UserID      string `json:"user_id"`      // optional when phone_number+display_name given
+	PhoneNumber string `json:"phone_number"` // add by number
+	DisplayName string `json:"display_name"` // name for the contact
 }
 
 func (h *ContactHandler) GetContacts(c *gin.Context) {
@@ -73,10 +73,10 @@ func (h *ContactHandler) GetContacts(c *gin.Context) {
 			contactDetails = append(contactDetails, map[string]interface{}{
 				"contact": contact,
 				"user": map[string]interface{}{
-					"id":            nil,
-					"phone_number":  contact.PhoneNumber,
-					"username":      contact.DisplayName,
-					"display_name":  contact.DisplayName,
+					"id":           nil,
+					"phone_number": contact.PhoneNumber,
+					"username":     contact.DisplayName,
+					"display_name": contact.DisplayName,
 				},
 			})
 		}
@@ -210,12 +210,12 @@ func (h *ContactHandler) AddContact(c *gin.Context) {
 		return
 	}
 	contact := models.Contact{
-		ID:         primitive.NewObjectID(),
-		UserID:     userIDObj,
-		ContactID:  &contactUserID,
-		ContactQR:  contactUser.QRCode,
+		ID:          primitive.NewObjectID(),
+		UserID:      userIDObj,
+		ContactID:   &contactUserID,
+		ContactQR:   contactUser.QRCode,
 		IsAnonymous: false,
-		CreatedAt:  time.Now(),
+		CreatedAt:   time.Now(),
 	}
 	if _, err := h.db.MongoDB.Collection("contacts").InsertOne(context.Background(), contact); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add contact"})
@@ -347,8 +347,3 @@ func (h *ContactHandler) DeleteContact(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Contact deleted successfully"})
 }
-
-
-
-
-

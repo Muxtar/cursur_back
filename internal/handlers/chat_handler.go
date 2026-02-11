@@ -24,10 +24,10 @@ func NewChatHandler(db *database.Database, hub *websocket.Hub) *ChatHandler {
 }
 
 type CreateChatRequest struct {
-	Type         string   `json:"type" binding:"required"` // direct, group
-	MemberIDs    []string `json:"member_ids"`
-	GroupName    string   `json:"group_name,omitempty"`
-	IsAnonymous  bool     `json:"is_anonymous"` // current user's identity hidden from others
+	Type        string   `json:"type" binding:"required"` // direct, group
+	MemberIDs   []string `json:"member_ids"`
+	GroupName   string   `json:"group_name,omitempty"`
+	IsAnonymous bool     `json:"is_anonymous"` // current user's identity hidden from others
 }
 
 // SendMessage is now handled by MessageHandler
@@ -98,13 +98,13 @@ func (h *ChatHandler) CreateChat(c *gin.Context) {
 	}
 
 	chat := models.Chat{
-		ID:                 primitive.NewObjectID(),
-		Type:               req.Type,
-		Members:            members,
-		GroupName:          req.GroupName,
+		ID:                  primitive.NewObjectID(),
+		Type:                req.Type,
+		Members:             members,
+		GroupName:           req.GroupName,
 		AnonymousFromUserID: anonymousFrom,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		CreatedAt:           time.Now(),
+		UpdatedAt:           time.Now(),
 	}
 
 	_, err := h.db.MongoDB.Collection("chats").InsertOne(context.Background(), chat)
@@ -194,15 +194,15 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 	var out []map[string]interface{}
 	for _, m := range messages {
 		raw := map[string]interface{}{
-			"id":            m.ID,
-			"chat_id":       m.ChatID,
-			"sender_id":     m.SenderID,
-			"content":       m.Content,
+			"id":           m.ID,
+			"chat_id":      m.ChatID,
+			"sender_id":    m.SenderID,
+			"content":      m.Content,
 			"message_type": m.MessageType,
 			"is_anonymous": m.IsAnonymous,
-			"status":        m.Status,
-			"created_at":    m.CreatedAt,
-			"updated_at":    m.UpdatedAt,
+			"status":       m.Status,
+			"created_at":   m.CreatedAt,
+			"updated_at":   m.UpdatedAt,
 		}
 		if chat.AnonymousFromUserID != nil && m.SenderID == *chat.AnonymousFromUserID && m.SenderID != userIDObj {
 			raw["sender_id"] = nil
@@ -261,4 +261,3 @@ func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Message deleted successfully"})
 }
-

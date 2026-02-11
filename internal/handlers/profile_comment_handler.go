@@ -60,10 +60,10 @@ func (h *ProfileCommentHandler) CreateProfileComment(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"id":          comment.ID,
+		"id":             comment.ID,
 		"target_user_id": req.TargetUserID,
-		"text":        comment.Text,
-		"created_at":  comment.CreatedAt,
+		"text":           comment.Text,
+		"created_at":     comment.CreatedAt,
 	})
 }
 
@@ -158,12 +158,12 @@ func (h *ProfileCommentHandler) ReplyToProfileComment(c *gin.Context) {
 	if err != nil {
 		// Create new chat; commenter is anonymous to profile owner
 		chat = models.Chat{
-			ID:                 primitive.NewObjectID(),
-			Type:               "direct",
-			Members:            members,
+			ID:                  primitive.NewObjectID(),
+			Type:                "direct",
+			Members:             members,
 			AnonymousFromUserID: &commenterID,
-			CreatedAt:          time.Now(),
-			UpdatedAt:          time.Now(),
+			CreatedAt:           time.Now(),
+			UpdatedAt:           time.Now(),
 		}
 		_, err = h.db.MongoDB.Collection("chats").InsertOne(context.Background(), chat)
 		if err != nil {
