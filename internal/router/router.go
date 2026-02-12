@@ -40,7 +40,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 	protected.Use(middleware.AuthMiddleware())
 	{
 		// User routes
-		userHandler := handlers.NewUserHandler(db)
+		userHandler := handlers.NewUserHandler(db, hub)
 		user := protected.Group("/users")
 		{
 			user.GET("/me", userHandler.GetMe)
@@ -50,6 +50,8 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			user.GET("/nearby", userHandler.GetNearbyUsers)
 			user.GET("/search", userHandler.SearchByUsername)
 			user.GET("/devices", userHandler.GetDevices)
+			user.GET("/online/:id", userHandler.CheckOnlineStatus)
+			user.GET("/online", userHandler.GetOnlineUsers)
 		}
 
 		// Public user search (no auth required for username search)
@@ -146,6 +148,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			proposals.GET("", proposalHandler.GetProposals)
 			proposals.PUT("/:proposal_id/accept", proposalHandler.AcceptProposal)
 			proposals.PUT("/:proposal_id/reject", proposalHandler.RejectProposal)
+			proposals.DELETE("/:proposal_id", proposalHandler.DeleteProposal)
 		}
 
 		// Call routes

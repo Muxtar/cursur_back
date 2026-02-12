@@ -8,6 +8,7 @@ import (
 	"chat-backend/internal/database"
 	"chat-backend/internal/models"
 	"chat-backend/internal/utils"
+	"chat-backend/internal/websocket"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -15,11 +16,12 @@ import (
 )
 
 type UserHandler struct {
-	db *database.Database
+	db  *database.Database
+	hub *websocket.Hub
 }
 
-func NewUserHandler(db *database.Database) *UserHandler {
-	return &UserHandler{db: db}
+func NewUserHandler(db *database.Database, hub *websocket.Hub) *UserHandler {
+	return &UserHandler{db: db, hub: hub}
 }
 
 func (h *UserHandler) GetMe(c *gin.Context) {
@@ -237,4 +239,30 @@ func (h *UserHandler) GetNearbyUsers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, nearbyUsers)
+}
+
+// CheckOnlineStatus checks if a specific user is online
+func (h *UserHandler) CheckOnlineStatus(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	isOnline := h.hub.IsUserOnline(userID)
+	c.JSON(http.StatusOK, gin.H{"user_id": userIDStr, "is_online": isOnline})
+}
+
+// GetOnlineUsers returns list of online user IDs
+func (h *UserHandler) GetOnlineUsers(c *gin.Context) {
+	onlineUserIDs := h.hub.GetOnlineUsers()
+	
+	// Convert to hex strings
+	onlineIDs := make([]string, len(onlineUserIDs))
+	for i, id := range onlineUserIDs {
+		onlineIDs[i] = id.Hex()
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"online_users": onlineIDs})
 }

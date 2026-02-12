@@ -21,15 +21,18 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	rooms      map[primitive.ObjectID]map[*Client]bool
+	// Track online users by user ID
+	onlineUsers map[primitive.ObjectID]bool
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte),
-		register:   make(chan *Client),
+		clients:     make(map[*Client]bool),
+		broadcast:   make(chan []byte),
+		register:    make(chan *Client),
 		unregister: make(chan *Client),
-		rooms:      make(map[primitive.ObjectID]map[*Client]bool),
+		rooms:       make(map[primitive.ObjectID]map[*Client]bool),
+		onlineUsers: make(map[primitive.ObjectID]bool),
 	}
 }
 
@@ -38,6 +41,7 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
+			h.onlineUsers[client.ID] = true
 			for chatID := range client.Chats {
 				if h.rooms[chatID] == nil {
 					h.rooms[chatID] = make(map[*Client]bool)
@@ -49,6 +53,17 @@ func (h *Hub) Run() {
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				close(client.Send)
+				// Check if user has any other active connections
+				hasOtherConnection := false
+				for c := range h.clients {
+					if c.ID == client.ID {
+						hasOtherConnection = true
+						break
+					}
+				}
+				if !hasOtherConnection {
+					delete(h.onlineUsers, client.ID)
+				}
 				for chatID := range client.Chats {
 					if room, ok := h.rooms[chatID]; ok {
 						delete(room, client)
@@ -83,6 +98,20 @@ func (h *Hub) BroadcastToRoom(chatID primitive.ObjectID, message models.Message)
 			}
 		}
 	}
+}
+
+// IsUserOnline checks if a user is currently online
+func (h *Hub) IsUserOnline(userID primitive.ObjectID) bool {
+	return h.onlineUsers[userID]
+}
+
+// GetOnlineUsers returns list of online user IDs
+func (h *Hub) GetOnlineUsers() []primitive.ObjectID {
+	online := make([]primitive.ObjectID, 0, len(h.onlineUsers))
+	for userID := range h.onlineUsers {
+		online = append(online, userID)
+	}
+	return online
 }
 
 

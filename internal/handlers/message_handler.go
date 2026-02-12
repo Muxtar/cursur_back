@@ -53,14 +53,18 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 
 	// Support both /chats/:chat_id/messages and /messages endpoints
 	chatIDStr := c.Param("chat_id")
+	
+	var req SendMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// If chat_id is not in URL, try to get from body
 	if chatIDStr == "" {
-		// Try to get from body
-		var body struct {
-			ChatID string `json:"chat_id" binding:"required"`
-		}
-		if err := c.ShouldBindJSON(&body); err == nil {
-			chatIDStr = body.ChatID
-		}
+		// This should be handled by the route, but just in case
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Chat ID is required"})
+		return
 	}
 
 	chatID, err := primitive.ObjectIDFromHex(chatIDStr)
@@ -69,20 +73,20 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	var req SendMessageRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// Check if chat exists and verify user is a member
+	var chat models.Chat
+	err = h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": chatID, "members": userIDObj},
+	).Decode(&chat)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chat not found or you are not a member"})
 		return
 	}
 
 	// Check slow mode
-	var chat models.Chat
-	err = h.db.MongoDB.Collection("chats").FindOne(
-		context.Background(),
-		bson.M{"_id": chatID},
-	).Decode(&chat)
-
-	if err == nil && chat.SlowMode > 0 {
+	if chat.SlowMode > 0 {
 		lastMessageKey := userIDObj.Hex()
 		if lastTime, exists := chat.LastSlowModeMessage[lastMessageKey]; exists {
 			timeSinceLastMessage := time.Since(lastTime)
@@ -116,9 +120,16 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 	}
 
 	isAnonymous := req.IsAnonymous
-	if err == nil && chat.AnonymousFromUserID != nil && *chat.AnonymousFromUserID == userIDObj {
+	if chat.AnonymousFromUserID != nil && *chat.AnonymousFromUserID == userIDObj {
 		isAnonymous = true
 	}
+	
+	// Handle Formatting - it's a pointer, so check if nil
+	var formatting models.MessageFormatting
+	if req.Formatting != nil {
+		formatting = *req.Formatting
+	}
+	
 	message := models.Message{
 		ID:              primitive.NewObjectID(),
 		ChatID:          chatID,
@@ -139,7 +150,7 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		Contact:         req.Contact,
 		Poll:            req.Poll,
 		Mentions:        mentions,
-		Formatting:      *req.Formatting,
+		Formatting:      formatting,
 		LinkPreview:     req.LinkPreview,
 		ScheduledFor:    req.ScheduledFor,
 		IsDraft:         req.IsDraft,

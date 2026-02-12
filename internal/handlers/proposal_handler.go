@@ -194,3 +194,51 @@ func (h *ProposalHandler) RejectProposal(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Proposal rejected"})
 }
+
+func (h *ProposalHandler) DeleteProposal(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	userIDObj := userID.(primitive.ObjectID)
+
+	proposalIDStr := c.Param("proposal_id")
+	proposalID, err := primitive.ObjectIDFromHex(proposalIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid proposal ID"})
+		return
+	}
+
+	// Verify user is the sender or receiver (can delete own proposals)
+	var proposal models.Proposal
+	err = h.db.MongoDB.Collection("proposals").FindOne(
+		context.Background(),
+		bson.M{
+			"_id": proposalID,
+			"$or": []bson.M{
+				{"sender_id": userIDObj},
+				{"receiver_id": userIDObj},
+			},
+		},
+	).Decode(&proposal)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})
+		return
+	}
+
+	// Only allow deletion if status is pending
+	if proposal.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Can only delete pending proposals"})
+		return
+	}
+
+	_, err = h.db.MongoDB.Collection("proposals").DeleteOne(
+		context.Background(),
+		bson.M{"_id": proposalID},
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete proposal"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Proposal deleted"})
+}
