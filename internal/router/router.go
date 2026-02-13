@@ -88,6 +88,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			chats.GET("/:chat_id", chatHandler.GetChat)
 			chats.GET("/:chat_id/messages", chatHandler.GetMessages)
 			chats.POST("/:chat_id/messages", chatHandler.SendMessage)
+			chats.DELETE("/:chat_id", chatHandler.DeleteChat)
 		}
 
 		// Message routes

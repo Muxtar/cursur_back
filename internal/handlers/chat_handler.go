@@ -261,3 +261,42 @@ func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Message deleted successfully"})
 }
+
+func (h *ChatHandler) DeleteChat(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	userIDObj := userID.(primitive.ObjectID)
+
+	chatIDStr := c.Param("chat_id")
+	chatID, err := primitive.ObjectIDFromHex(chatIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid chat ID"})
+		return
+	}
+
+	// Verify user is a member of the chat
+	var chat models.Chat
+	err = h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": chatID, "members": userIDObj},
+	).Decode(&chat)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chat not found or you are not a member"})
+		return
+	}
+
+	// Remove user from members list (soft delete - chat will be hidden from user)
+	// This works for both direct and group chats
+	_, err = h.db.MongoDB.Collection("chats").UpdateOne(
+		context.Background(),
+		bson.M{"_id": chatID},
+		bson.M{"$pull": bson.M{"members": userIDObj}},
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete chat"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Chat deleted successfully"})
+}
