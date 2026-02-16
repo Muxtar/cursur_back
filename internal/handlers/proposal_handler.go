@@ -131,7 +131,9 @@ func (h *ProposalHandler) AcceptProposal(c *gin.Context) {
 		return
 	}
 
-	// Create direct chat between sender and receiver; sender is anonymous to receiver if ChatAnonymous
+	// Create direct chat between sender and receiver; sender is anonymous to receiver if ChatAnonymous.
+	// We also set GroupName from proposal title so that chats created from proposals
+	// have a distinguishable name on the frontend.
 	members := []primitive.ObjectID{proposal.SenderID, proposal.ReceiverID}
 	var anonymousFrom *primitive.ObjectID
 	if proposal.ChatAnonymous {
@@ -141,6 +143,7 @@ func (h *ProposalHandler) AcceptProposal(c *gin.Context) {
 		ID:                  primitive.NewObjectID(),
 		Type:                "direct",
 		Members:             members,
+		GroupName:           proposal.Title,
 		AnonymousFromUserID: anonymousFrom,
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
@@ -239,6 +242,5 @@ func (h *ProposalHandler) DeleteProposal(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete proposal"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Proposal deleted"})
 }
