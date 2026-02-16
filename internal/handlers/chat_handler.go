@@ -53,6 +53,7 @@ func (h *ChatHandler) GetChats(c *gin.Context) {
 	}
 
 	// Enrich: for direct chats, set other_party_anonymous when the other member is anonymous to current user
+	// Also add last_message for each chat
 	out := make([]map[string]interface{}, 0, len(chats))
 	for _, ch := range chats {
 		m := map[string]interface{}{
@@ -68,6 +69,44 @@ func (h *ChatHandler) GetChats(c *gin.Context) {
 			otherIsAnonymous := *ch.AnonymousFromUserID != userIDObj
 			m["other_party_anonymous"] = otherIsAnonymous
 		}
+		
+		// Get last message for this chat
+		if ch.LastMessageID != nil {
+			var lastMsg models.Message
+			err := h.db.MongoDB.Collection("messages").FindOne(
+				context.Background(),
+				bson.M{
+					"_id":        ch.LastMessageID,
+					"is_deleted": false,
+					"deleted_for": bson.M{"$ne": userIDObj},
+				},
+			).Decode(&lastMsg)
+			if err == nil {
+				lastMsgMap := map[string]interface{}{
+					"id":           lastMsg.ID,
+					"content":      lastMsg.Content,
+					"message_type": lastMsg.MessageType,
+					"sender_id":    lastMsg.SenderID,
+					"is_anonymous": lastMsg.IsAnonymous,
+					"status":       lastMsg.Status,
+					"created_at":   lastMsg.CreatedAt,
+				}
+				// Mask anonymous sender for direct chats
+				if ch.Type == "direct" && ch.AnonymousFromUserID != nil && lastMsg.SenderID == *ch.AnonymousFromUserID && lastMsg.SenderID != userIDObj {
+					lastMsgMap["sender_id"] = nil
+					lastMsgMap["is_anonymous"] = true
+				}
+				m["last_message"] = lastMsgMap
+			}
+		}
+		
+		// Add unread count for this user
+		if ch.UnreadCount != nil {
+			if count, ok := ch.UnreadCount[userIDObj.Hex()]; ok {
+				m["unread_count"] = count
+			}
+		}
+		
 		out = append(out, m)
 	}
 	c.JSON(http.StatusOK, out)

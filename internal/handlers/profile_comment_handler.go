@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type ProfileCommentHandler struct {
@@ -68,15 +69,34 @@ func (h *ProfileCommentHandler) CreateProfileComment(c *gin.Context) {
 }
 
 // GetProfileComments returns comments about a user. Author is never exposed.
+// Can query by target_user_id or phone_number
 func (h *ProfileCommentHandler) GetProfileComments(c *gin.Context) {
 	targetIDStr := c.Query("target_user_id")
-	if targetIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "target_user_id required"})
-		return
-	}
-	targetID, err := primitive.ObjectIDFromHex(targetIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid target_user_id"})
+	phoneNumber := c.Query("phone_number")
+	
+	var targetID primitive.ObjectID
+	var err error
+	
+	if targetIDStr != "" {
+		targetID, err = primitive.ObjectIDFromHex(targetIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid target_user_id"})
+			return
+		}
+	} else if phoneNumber != "" {
+		// Find user by phone number
+		var targetUser models.User
+		err = h.db.MongoDB.Collection("users").FindOne(
+			context.Background(),
+			bson.M{"phone_number": phoneNumber},
+		).Decode(&targetUser)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found with this phone number"})
+			return
+		}
+		targetID = targetUser.ID
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_user_id or phone_number required"})
 		return
 	}
 

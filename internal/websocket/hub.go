@@ -100,6 +100,20 @@ func (h *Hub) BroadcastToRoom(chatID primitive.ObjectID, message models.Message)
 	}
 }
 
+// BroadcastJSONToRoom broadcasts a JSON message to all clients in a chat room
+func (h *Hub) BroadcastJSONToRoom(chatID primitive.ObjectID, data []byte) {
+	if room, ok := h.rooms[chatID]; ok {
+		for client := range room {
+			select {
+			case client.Send <- data:
+			default:
+				close(client.Send)
+				delete(h.clients, client)
+			}
+		}
+	}
+}
+
 // IsUserOnline checks if a user is currently online
 func (h *Hub) IsUserOnline(userID primitive.ObjectID) bool {
 	return h.onlineUsers[userID]

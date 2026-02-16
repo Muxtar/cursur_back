@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -70,8 +71,17 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 		return
 	}
 
-	// Broadcast call via WebSocket
-	// This would notify all members in the chat
+	// Broadcast call via WebSocket to all chat members
+	callNotification := map[string]interface{}{
+		"type":      "call",
+		"call_id":   call.ID.Hex(),
+		"chat_id":   chatID.Hex(),
+		"call_type": call.Type,
+		"caller_id": call.CallerID.Hex(),
+		"status":    call.Status,
+	}
+	callJSON, _ := json.Marshal(callNotification)
+	h.hub.BroadcastJSONToRoom(chatID, callJSON)
 
 	c.JSON(http.StatusCreated, call)
 }
