@@ -174,8 +174,9 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 	cursor, err := h.db.MongoDB.Collection("messages").Find(
 		context.Background(),
 		bson.M{
-			"chat_id":    chatID,
-			"is_deleted": false,
+			"chat_id":     chatID,
+			"is_deleted":  false,
+			"deleted_for": bson.M{"$ne": userIDObj},
 		},
 	)
 	if err != nil {
