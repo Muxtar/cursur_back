@@ -48,6 +48,31 @@ type SendMessageRequest struct {
 	BotCommand      string                    `json:"bot_command,omitempty"`
 }
 
+func broadcastChatMessageEvent(hub *websocket.Hub, chat models.Chat, chatID primitive.ObjectID, senderID primitive.ObjectID, messageID primitive.ObjectID, event string) {
+	evt := map[string]interface{}{
+		"type":       "message",
+		"event":      event, // created|updated|deleted
+		"chat_id":    chatID.Hex(),
+		"message_id": messageID.Hex(),
+	}
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return
+	}
+
+	// Room broadcast for currently-open chat windows
+	hub.BroadcastJSONToRoom(chatID, data)
+
+	// Also fan-out directly to chat members, so they can get real-time updates even if not joined.
+	for _, memberID := range chat.Members {
+		// Sender doesn't need the direct copy (they already have local UI + room broadcast)
+		if memberID == senderID {
+			continue
+		}
+		hub.SendJSONToUser(memberID, data)
+	}
+}
+
 func (h *MessageHandler) SendMessage(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDObj := userID.(primitive.ObjectID)
@@ -199,7 +224,8 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 
 	// Broadcast message via WebSocket
 	if !req.IsDraft && (req.ScheduledFor == nil || req.ScheduledFor.Before(time.Now())) {
-		h.hub.BroadcastToRoom(chatID, message)
+		// Send minimal event; clients re-fetch messages via API (prevents leaking anonymous sender_id via WS).
+		broadcastChatMessageEvent(h.hub, chat, chatID, userIDObj, message.ID, "created")
 	}
 
 	c.JSON(http.StatusCreated, message)
@@ -254,7 +280,26 @@ func (h *MessageHandler) EditMessage(c *gin.Context) {
 	}
 
 	// Broadcast update
-	h.hub.BroadcastToRoom(message.ChatID, message)
+	// Notify chat members to refresh messages
+	var chat models.Chat
+	_ = h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": message.ChatID},
+	).Decode(&chat)
+	if chat.ID != primitive.NilObjectID {
+		broadcastChatMessageEvent(h.hub, chat, message.ChatID, userIDObj, message.ID, "updated")
+	} else {
+		// Fallback: at least broadcast to room
+		evt := map[string]interface{}{
+			"type":       "message",
+			"event":      "updated",
+			"chat_id":    message.ChatID.Hex(),
+			"message_id": message.ID.Hex(),
+		}
+		if data, err := json.Marshal(evt); err == nil {
+			h.hub.BroadcastJSONToRoom(message.ChatID, data)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Message edited successfully"})
 }
@@ -321,6 +366,18 @@ func (h *MessageHandler) DeleteMessage(c *gin.Context) {
 		return
 	}
 
+	// If deleted for everyone, notify chat members to refresh
+	if req.DeleteForEveryone && message.SenderID == userIDObj {
+		var chat models.Chat
+		_ = h.db.MongoDB.Collection("chats").FindOne(
+			context.Background(),
+			bson.M{"_id": message.ChatID},
+		).Decode(&chat)
+		if chat.ID != primitive.NilObjectID {
+			broadcastChatMessageEvent(h.hub, chat, message.ChatID, userIDObj, message.ID, "deleted")
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Message deleted successfully"})
 }
 
@@ -363,6 +420,15 @@ func (h *MessageHandler) ForwardMessage(c *gin.Context) {
 			continue
 		}
 
+			// Load chat members for websocket fan-out
+			var targetChat models.Chat
+			if err := h.db.MongoDB.Collection("chats").FindOne(
+				context.Background(),
+				bson.M{"_id": chatID, "members": userIDObj},
+			).Decode(&targetChat); err != nil {
+				continue
+			}
+
 		forwardedMessage := models.Message{
 			ID:                primitive.NewObjectID(),
 			ChatID:            chatID,
@@ -387,7 +453,7 @@ func (h *MessageHandler) ForwardMessage(c *gin.Context) {
 		_, err = h.db.MongoDB.Collection("messages").InsertOne(context.Background(), forwardedMessage)
 		if err == nil {
 			forwardedMessages = append(forwardedMessages, forwardedMessage)
-			h.hub.BroadcastToRoom(chatID, forwardedMessage)
+				broadcastChatMessageEvent(h.hub, targetChat, chatID, userIDObj, forwardedMessage.ID, "created")
 		}
 	}
 
@@ -453,7 +519,14 @@ func (h *MessageHandler) AddReaction(c *gin.Context) {
 		return
 	}
 
-	h.hub.BroadcastToRoom(message.ChatID, message)
+	var chat models.Chat
+	_ = h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": message.ChatID},
+	).Decode(&chat)
+	if chat.ID != primitive.NilObjectID {
+		broadcastChatMessageEvent(h.hub, chat, message.ChatID, userIDObj, message.ID, "updated")
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "Reaction added"})
 }
 
@@ -501,7 +574,14 @@ func (h *MessageHandler) RemoveReaction(c *gin.Context) {
 		return
 	}
 
-	h.hub.BroadcastToRoom(message.ChatID, message)
+	var chat models.Chat
+	_ = h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": message.ChatID},
+	).Decode(&chat)
+	if chat.ID != primitive.NilObjectID {
+		broadcastChatMessageEvent(h.hub, chat, message.ChatID, userIDObj, message.ID, "updated")
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "Reaction removed"})
 }
 
@@ -825,7 +905,14 @@ func (h *MessageHandler) VotePoll(c *gin.Context) {
 		return
 	}
 
-	h.hub.BroadcastToRoom(message.ChatID, message)
+	var chat models.Chat
+	_ = h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": message.ChatID},
+	).Decode(&chat)
+	if chat.ID != primitive.NilObjectID {
+		broadcastChatMessageEvent(h.hub, chat, message.ChatID, userIDObj, message.ID, "updated")
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "Vote recorded"})
 }
 
