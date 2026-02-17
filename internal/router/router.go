@@ -225,6 +225,15 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 		protected.POST("/comments/:comment_id/like", likeHandler.LikeComment)
 		protected.DELETE("/comments/:comment_id/like", likeHandler.UnlikeComment)
 		protected.GET("/products/:product_id/likes", likeHandler.GetProductLikes)
+
+		// Notification routes
+		notificationHandler := handlers.NewNotificationHandler(db)
+		notifications := protected.Group("/notifications")
+		{
+			notifications.GET("", notificationHandler.GetNotifications)
+			notifications.POST("/read", notificationHandler.MarkNotificationsRead)
+			notifications.GET("/unread-count", notificationHandler.GetUnreadCount)
+		}
 	}
 
 	// WebSocket route

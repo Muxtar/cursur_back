@@ -59,6 +59,29 @@ func (h *ProfileCommentHandler) CreateProfileComment(c *gin.Context) {
 		return
 	}
 
+	// Get target user's phone number for notification
+	var targetUser models.User
+	err = h.db.MongoDB.Collection("users").FindOne(
+		context.Background(),
+		bson.M{"_id": targetID},
+	).Decode(&targetUser)
+	if err == nil {
+		// Create notification for the target user
+		notification := models.Notification{
+			ID:        primitive.NewObjectID(),
+			UserID:    targetID,
+			Type:      "profile_comment",
+			Title:     "Yeni şərh",
+			Body:      "Nömrənizə yeni şərh yazıldı",
+			Data: map[string]interface{}{
+				"comment_id": comment.ID.Hex(),
+				"phone":      targetUser.PhoneNumber,
+			},
+			CreatedAt: time.Now(),
+		}
+		h.db.MongoDB.Collection("notifications").InsertOne(context.Background(), notification)
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"id":             comment.ID,
 		"target_user_id": req.TargetUserID,
