@@ -102,6 +102,36 @@ func (h *UserHandler) SearchByUsername(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
+// GetUserByPhoneNumber returns public profile for a user (by phone number).
+// Query param: phone_number
+func (h *UserHandler) GetUserByPhoneNumber(c *gin.Context) {
+	phoneNumber := c.Query("phone_number")
+	if phoneNumber == "" {
+		phoneNumber = c.Query("phone")
+	}
+	if phoneNumber == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "phone_number required"})
+		return
+	}
+
+	var user models.User
+	err := h.db.MongoDB.Collection("users").FindOne(
+		context.Background(),
+		bson.M{"phone_number": phoneNumber},
+	).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Hide phone number if user wants it hidden (consistent with other profile endpoints)
+	if user.HidePhoneNumber {
+		user.PhoneNumber = ""
+	}
+
+	c.JSON(http.StatusOK, user)
+}
+
 func (h *UserHandler) GetDevices(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDObj := userID.(primitive.ObjectID)

@@ -45,6 +45,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 		{
 			user.GET("/me", userHandler.GetMe)
 			user.GET("/profile/:id", userHandler.GetUserByID)
+			user.GET("/by-phone", userHandler.GetUserByPhoneNumber)
 			user.PUT("/me", userHandler.UpdateMe)
 			user.PUT("/location", userHandler.UpdateLocation)
 			user.GET("/nearby", userHandler.GetNearbyUsers)
