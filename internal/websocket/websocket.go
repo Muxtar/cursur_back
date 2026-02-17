@@ -89,15 +89,13 @@ func (c *Client) readPump() {
 				c.Hub.leaveRoom <- roomEvent{client: c, chatID: chatID}
 			}
 		case "webrtc_offer", "webrtc_answer", "webrtc_ice":
-			// Forward WebRTC signaling messages to other chat members
+			// Forward WebRTC signaling messages to other chat members (excluding sender)
 			if chatIDStr, ok := msg["chat_id"].(string); ok {
 				chatID, err := primitive.ObjectIDFromHex(chatIDStr)
 				if err == nil {
-					// Forward to room (other members in the chat)
 					msgBytes, _ := json.Marshal(msg)
-					c.Hub.BroadcastJSONToRoom(chatID, msgBytes)
-					// Also send directly to chat members (in case they're not in the room)
-					// Note: We'd need chat members from DB, but for now room broadcast should work
+					// Forward to room excluding sender (so sender doesn't receive their own WebRTC messages)
+					c.Hub.BroadcastJSONToRoomExcludingSender(chatID, c.ID, msgBytes)
 				}
 			}
 		}

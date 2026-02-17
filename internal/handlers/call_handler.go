@@ -118,10 +118,37 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 }
 
 func (h *CallHandler) AnswerCall(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	userIDObj := userID.(primitive.ObjectID)
+
 	callIDStr := c.Param("call_id")
 	callID, err := primitive.ObjectIDFromHex(callIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid call ID"})
+		return
+	}
+
+	// Load call to get chat ID and caller ID
+	var call models.Call
+	err = h.db.MongoDB.Collection("calls").FindOne(
+		context.Background(),
+		bson.M{"_id": callID},
+	).Decode(&call)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Call not found"})
+		return
+	}
+
+	// Verify user is a member of the call
+	isMember := false
+	for _, memberID := range call.Members {
+		if memberID == userIDObj {
+			isMember = true
+			break
+		}
+	}
+	if !isMember {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not a member of this call"})
 		return
 	}
 
@@ -135,6 +162,21 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to answer call"})
 		return
 	}
+
+	// Notify caller that call was answered
+	answerNotification := map[string]interface{}{
+		"type":      "call_answered",
+		"call_id":   callID.Hex(),
+		"chat_id":   call.ChatID.Hex(),
+		"call_type": call.Type,
+		"status":    "active",
+	}
+	answerJSON, _ := json.Marshal(answerNotification)
+	
+	// Send to caller
+	h.hub.SendJSONToUser(call.CallerID, answerJSON)
+	// Also broadcast to room
+	h.hub.BroadcastJSONToRoom(call.ChatID, answerJSON)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Call answered"})
 }

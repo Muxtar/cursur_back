@@ -157,6 +157,25 @@ func (h *Hub) BroadcastJSONToRoom(chatID primitive.ObjectID, data []byte) {
 	}
 }
 
+// BroadcastJSONToRoomExcludingSender broadcasts a JSON message to all clients in a chat room except the sender
+func (h *Hub) BroadcastJSONToRoomExcludingSender(chatID primitive.ObjectID, senderID primitive.ObjectID, data []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if room, ok := h.rooms[chatID]; ok {
+		for client := range room {
+			if client.ID == senderID {
+				continue // Skip sender
+			}
+			select {
+			case client.Send <- data:
+			default:
+				close(client.Send)
+				delete(h.clients, client)
+			}
+		}
+	}
+}
+
 // SendJSONToUser sends a JSON message to all active connections of a user.
 func (h *Hub) SendJSONToUser(userID primitive.ObjectID, data []byte) {
 	h.mu.RLock()
