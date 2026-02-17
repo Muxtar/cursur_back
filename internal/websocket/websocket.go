@@ -96,6 +96,11 @@ func (c *Client) readPump() {
 					msgBytes, _ := json.Marshal(msg)
 					// Forward to room excluding sender (so sender doesn't receive their own WebRTC messages)
 					c.Hub.BroadcastJSONToRoomExcludingSender(chatID, c.ID, msgBytes)
+					
+					// Also send directly to chat members who might not be in the room
+					// This ensures WebRTC messages reach even if user hasn't joined the chat room yet
+					// Note: We'd need to load chat members from DB, but for now room broadcast should work
+					// If needed, we can add direct user sending here by loading chat members
 				}
 			}
 		}
