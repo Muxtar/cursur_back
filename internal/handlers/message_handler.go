@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -523,6 +524,9 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 		return
 	}
 
+	updatedIDs := make([]string, 0)
+	now := time.Now()
+
 	if len(req.MessageIDs) > 0 {
 		// Mark specific messages as read
 		for _, messageIDStr := range req.MessageIDs {
@@ -541,6 +545,11 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 				continue
 			}
 
+			// Do not mark your own outgoing messages as read
+			if message.SenderID == userIDObj {
+				continue
+			}
+
 			// Check if already read
 			alreadyRead := false
 			for _, receipt := range message.ReadBy {
@@ -554,23 +563,21 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 				readBy := message.ReadBy
 				readBy = append(readBy, models.ReadReceipt{
 					UserID: userIDObj,
-					ReadAt: time.Now(),
+					ReadAt: now,
 				})
-
-				status := "read"
-				if len(readBy) < len(message.Mentions) {
-					status = "delivered"
-				}
 
 				_, err = h.db.MongoDB.Collection("messages").UpdateOne(
 					context.Background(),
 					bson.M{"_id": messageID},
 					bson.M{"$set": bson.M{
 						"read_by":    readBy,
-						"status":     status,
-						"updated_at": time.Now(),
+						"status":     "read",
+						"updated_at": now,
 					}},
 				)
+				if err == nil {
+					updatedIDs = append(updatedIDs, messageID.Hex())
+				}
 			}
 		}
 	} else {
@@ -580,7 +587,7 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 			bson.M{
 				"chat_id":         chatID,
 				"sender_id":       bson.M{"$ne": userIDObj},
-				"read_by.user_id": bson.M{"$ne": userIDObj},
+				"read_by": bson.M{"$not": bson.M{"$elemMatch": bson.M{"user_id": userIDObj}}},
 			},
 		)
 
@@ -595,7 +602,7 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 				readBy := message.ReadBy
 				readBy = append(readBy, models.ReadReceipt{
 					UserID: userIDObj,
-					ReadAt: time.Now(),
+					ReadAt: now,
 				})
 
 				_, err = h.db.MongoDB.Collection("messages").UpdateOne(
@@ -604,9 +611,12 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 					bson.M{"$set": bson.M{
 						"read_by":    readBy,
 						"status":     "read",
-						"updated_at": time.Now(),
+						"updated_at": now,
 					}},
 				)
+				if err == nil {
+					updatedIDs = append(updatedIDs, message.ID.Hex())
+				}
 			}
 		}
 	}
@@ -620,7 +630,31 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 		}},
 	)
 
-	c.JSON(http.StatusOK, gin.H{"message": "Messages marked as read"})
+	// Notify other clients (so sender can show double-check)
+	if len(updatedIDs) > 0 {
+		// Load chat members to broadcast to all online participants (not only those who joined the room)
+		var chat models.Chat
+		_ = h.db.MongoDB.Collection("chats").FindOne(
+			context.Background(),
+			bson.M{"_id": chatID},
+		).Decode(&chat)
+
+		readEvent := map[string]interface{}{
+			"type":        "message_read",
+			"chat_id":     chatID.Hex(),
+			"reader_id":   userIDObj.Hex(),
+			"message_ids": updatedIDs,
+			"read_at":     now,
+		}
+		if payload, err := json.Marshal(readEvent); err == nil {
+			if len(chat.Members) > 0 {
+				h.hub.BroadcastJSONToUsers(chat.Members, payload)
+			}
+			h.hub.BroadcastJSONToRoom(chatID, payload)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Messages marked as read", "updated_message_ids": updatedIDs})
 }
 
 func (h *MessageHandler) PinMessage(c *gin.Context) {

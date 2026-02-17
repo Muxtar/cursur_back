@@ -78,13 +78,21 @@ func (c *Client) readPump() {
 		switch msg["type"] {
 		case "join_chat":
 			if chatIDStr, ok := msg["chat_id"].(string); ok {
-				chatID, _ := primitive.ObjectIDFromHex(chatIDStr)
+				chatID, err := primitive.ObjectIDFromHex(chatIDStr)
+				if err != nil {
+					continue
+				}
 				c.Chats[chatID] = true
+				c.Hub.joinRoom <- roomSubscription{ChatID: chatID, Client: c}
 			}
 		case "leave_chat":
 			if chatIDStr, ok := msg["chat_id"].(string); ok {
-				chatID, _ := primitive.ObjectIDFromHex(chatIDStr)
+				chatID, err := primitive.ObjectIDFromHex(chatIDStr)
+				if err != nil {
+					continue
+				}
 				delete(c.Chats, chatID)
+				c.Hub.leaveRoom <- roomSubscription{ChatID: chatID, Client: c}
 			}
 		}
 	}
