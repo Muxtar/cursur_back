@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -523,6 +524,18 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 		return
 	}
 
+	// Verify user is a member of the chat (and load members for notification fan-out)
+	var chat models.Chat
+	if err := h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": chatID, "members": userIDObj},
+	).Decode(&chat); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chat not found or you are not a member"})
+		return
+	}
+
+	updatedIDs := make([]string, 0)
+
 	if len(req.MessageIDs) > 0 {
 		// Mark specific messages as read
 		for _, messageIDStr := range req.MessageIDs {
@@ -534,7 +547,8 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 			var message models.Message
 			err = h.db.MongoDB.Collection("messages").FindOne(
 				context.Background(),
-				bson.M{"_id": messageID, "chat_id": chatID},
+				// Only mark messages sent by someone else
+				bson.M{"_id": messageID, "chat_id": chatID, "sender_id": bson.M{"$ne": userIDObj}},
 			).Decode(&message)
 
 			if err != nil {
@@ -557,20 +571,18 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 					ReadAt: time.Now(),
 				})
 
-				status := "read"
-				if len(readBy) < len(message.Mentions) {
-					status = "delivered"
-				}
-
 				_, err = h.db.MongoDB.Collection("messages").UpdateOne(
 					context.Background(),
 					bson.M{"_id": messageID},
 					bson.M{"$set": bson.M{
 						"read_by":    readBy,
-						"status":     status,
+						"status":     "read",
 						"updated_at": time.Now(),
 					}},
 				)
+				if err == nil {
+					updatedIDs = append(updatedIDs, messageID.Hex())
+				}
 			}
 		}
 	} else {
@@ -578,9 +590,10 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 		cursor, err := h.db.MongoDB.Collection("messages").Find(
 			context.Background(),
 			bson.M{
-				"chat_id":         chatID,
-				"sender_id":       bson.M{"$ne": userIDObj},
-				"read_by.user_id": bson.M{"$ne": userIDObj},
+				"chat_id":   chatID,
+				"sender_id": bson.M{"$ne": userIDObj},
+				// Ensure there is no existing receipt for this user
+				"read_by": bson.M{"$not": bson.M{"$elemMatch": bson.M{"user_id": userIDObj}}},
 			},
 		)
 
@@ -607,6 +620,9 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 						"updated_at": time.Now(),
 					}},
 				)
+				if err == nil {
+					updatedIDs = append(updatedIDs, message.ID.Hex())
+				}
 			}
 		}
 	}
@@ -619,6 +635,27 @@ func (h *MessageHandler) MarkAsRead(c *gin.Context) {
 			"unread_count." + userIDObj.Hex(): 0,
 		}},
 	)
+
+	// Notify other clients (so sender can update ✓/✓✓)
+	if len(updatedIDs) > 0 {
+		evt := map[string]interface{}{
+			"type":        "message_read",
+			"chat_id":     chatID.Hex(),
+			"reader_id":   userIDObj.Hex(),
+			"message_ids": updatedIDs,
+		}
+		if data, err := json.Marshal(evt); err == nil {
+			// Room broadcast (when both parties are in the chat)
+			h.hub.BroadcastJSONToRoom(chatID, data)
+			// Direct fan-out (so sender can receive even if not joined to the room)
+			for _, memberID := range chat.Members {
+				if memberID == userIDObj {
+					continue
+				}
+				h.hub.SendJSONToUser(memberID, data)
+			}
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Messages marked as read"})
 }

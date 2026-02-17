@@ -46,13 +46,38 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 		return
 	}
 
-	members := []primitive.ObjectID{userIDObj}
-	for _, memberIDStr := range req.Members {
-		memberID, err := primitive.ObjectIDFromHex(memberIDStr)
-		if err != nil {
-			continue
+	// Load chat to verify membership and get members when not provided.
+	var chat models.Chat
+	if err := h.db.MongoDB.Collection("chats").FindOne(
+		context.Background(),
+		bson.M{"_id": chatID, "members": userIDObj},
+	).Decode(&chat); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chat not found or you are not a member"})
+		return
+	}
+
+	// Determine call members:
+	// - If client passes explicit members (e.g., group call selection), use them.
+	// - Otherwise default to chat members (so direct calls include the other party).
+	memberSet := make(map[primitive.ObjectID]bool)
+	memberSet[userIDObj] = true
+	if len(req.Members) > 0 {
+		for _, memberIDStr := range req.Members {
+			memberID, err := primitive.ObjectIDFromHex(memberIDStr)
+			if err != nil {
+				continue
+			}
+			memberSet[memberID] = true
 		}
-		members = append(members, memberID)
+	} else {
+		for _, m := range chat.Members {
+			memberSet[m] = true
+		}
+	}
+
+	members := make([]primitive.ObjectID, 0, len(memberSet))
+	for id := range memberSet {
+		members = append(members, id)
 	}
 
 	call := models.Call{
@@ -81,7 +106,13 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 		"status":    call.Status,
 	}
 	callJSON, _ := json.Marshal(callNotification)
+
+	// 1) Broadcast to the room (when users are actively inside the chat)
 	h.hub.BroadcastJSONToRoom(chatID, callJSON)
+	// 2) Also send to users directly so they can receive even if they haven't joined the room yet
+	for _, memberID := range members {
+		h.hub.SendJSONToUser(memberID, callJSON)
+	}
 
 	c.JSON(http.StatusCreated, call)
 }

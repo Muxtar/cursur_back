@@ -79,12 +79,14 @@ func (c *Client) readPump() {
 		case "join_chat":
 			if chatIDStr, ok := msg["chat_id"].(string); ok {
 				chatID, _ := primitive.ObjectIDFromHex(chatIDStr)
-				c.Chats[chatID] = true
+				// Subscribe client to room in the hub (so room broadcasts actually work)
+				c.Hub.joinRoom <- roomEvent{client: c, chatID: chatID}
 			}
 		case "leave_chat":
 			if chatIDStr, ok := msg["chat_id"].(string); ok {
 				chatID, _ := primitive.ObjectIDFromHex(chatIDStr)
-				delete(c.Chats, chatID)
+				// Unsubscribe client from room
+				c.Hub.leaveRoom <- roomEvent{client: c, chatID: chatID}
 			}
 		}
 	}
