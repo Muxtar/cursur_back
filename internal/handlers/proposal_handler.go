@@ -237,7 +237,6 @@ func (h *ProposalHandler) DeleteProposal(c *gin.Context) {
 		context.Background(),
 		bson.M{"_id": proposalID},
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete proposal"})
 		return

@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"chat-backend/internal/database"
 	"chat-backend/internal/models"
 	"sync"
 
@@ -14,6 +15,7 @@ type Client struct {
 	Hub    *Hub
 	Send   chan []byte
 	Chats  map[primitive.ObjectID]bool
+	DB     *database.Database
 }
 
 type roomEvent struct {

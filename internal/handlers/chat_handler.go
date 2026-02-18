@@ -337,6 +337,5 @@ func (h *ChatHandler) DeleteChat(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete chat"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Chat deleted successfully"})
 }

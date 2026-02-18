@@ -1,7 +1,9 @@
 package websocket
 
 import (
+	"context"
 	"chat-backend/internal/database"
+	"chat-backend/internal/models"
 	"chat-backend/internal/utils"
 	"encoding/json"
 	"log"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -46,6 +49,7 @@ func HandleWebSocket(hub *Hub, c *gin.Context, db *database.Database) {
 		Hub:   hub,
 		Send:  make(chan []byte, 256),
 		Chats: make(map[primitive.ObjectID]bool),
+		DB:    db,
 	}
 
 	client.Hub.register <- client
@@ -97,10 +101,22 @@ func (c *Client) readPump() {
 					// Forward to room excluding sender (so sender doesn't receive their own WebRTC messages)
 					c.Hub.BroadcastJSONToRoomExcludingSender(chatID, c.ID, msgBytes)
 					
-					// Also send directly to chat members who might not be in the room
-					// This ensures WebRTC messages reach even if user hasn't joined the chat room yet
-					// Note: We'd need to load chat members from DB, but for now room broadcast should work
-					// If needed, we can add direct user sending here by loading chat members
+					// Also send directly to chat members who might not be in the room.
+					// This ensures WebRTC signaling works even if the callee hasn't opened the chat UI.
+					if c.DB != nil && c.DB.MongoDB != nil {
+						var chat models.Chat
+						if err := c.DB.MongoDB.Collection("chats").FindOne(
+							context.Background(),
+							bson.M{"_id": chatID},
+						).Decode(&chat); err == nil {
+							for _, memberID := range chat.Members {
+								if memberID == c.ID {
+									continue
+								}
+								c.Hub.SendJSONToUser(memberID, msgBytes)
+							}
+						}
+					}
 				}
 			}
 		}
