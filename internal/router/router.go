@@ -1,6 +1,8 @@
 package router
 
 import (
+	"log"
+
 	"chat-backend/internal/config"
 	"chat-backend/internal/database"
 	"chat-backend/internal/handlers"
@@ -153,14 +155,16 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			proposals.DELETE("/:proposal_id", proposalHandler.DeleteProposal)
 		}
 
-		// Call routes
-		callHandler := handlers.NewCallHandler(db, hub)
-		calls := protected.Group("/calls")
-		{
-			calls.POST("", callHandler.InitiateCall)
-			calls.POST("/:call_id/answer", callHandler.AnswerCall)
-			calls.POST("/:call_id/end", callHandler.EndCall)
-		}
+	// Call routes
+	callHandler := handlers.NewCallHandler(db, hub)
+	// Start background timeout checker for calls
+	callHandler.StartCallTimeoutChecker()
+	calls := protected.Group("/calls")
+	{
+		calls.POST("", callHandler.InitiateCall)
+		calls.POST("/:call_id/answer", callHandler.AnswerCall)
+		calls.POST("/:call_id/end", callHandler.EndCall)
+	}
 
 		// File upload routes
 		fileHandler := handlers.NewFileHandler(db)
@@ -237,7 +241,11 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 	}
 
 	// WebSocket route
+	// IMPORTANT: WebSocket route should be registered AFTER CORS middleware
+	// CORS middleware handles OPTIONS preflight, but WebSocket upgrade doesn't use OPTIONS
 	r.GET("/ws", func(c *gin.Context) {
+		// Log WebSocket connection attempt for debugging
+		log.Printf("🔌 WebSocket connection attempt from: %s", c.Request.RemoteAddr)
 		websocket.HandleWebSocket(hub, c, db)
 	})
 }

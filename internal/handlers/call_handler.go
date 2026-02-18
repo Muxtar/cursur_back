@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -13,6 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+const (
+	// CallTimeoutDuration is the maximum time a call can stay in "ringing" status
+	CallTimeoutDuration = 60 * time.Second // 60 seconds timeout
+	// CallTimeoutCheckInterval is how often we check for timed-out calls
+	CallTimeoutCheckInterval = 30 * time.Second // Check every 30 seconds
 )
 
 type CallHandler struct {
@@ -152,10 +160,17 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
+	updateData := bson.M{
+		"status":     "active",
+		"answered_at": now,
+		"answered_by": userIDObj,
+	}
+	
 	_, err = h.db.MongoDB.Collection("calls").UpdateOne(
 		context.Background(),
 		bson.M{"_id": callID},
-		bson.M{"$set": bson.M{"status": "active"}},
+		bson.M{"$set": updateData},
 	)
 
 	if err != nil {
@@ -165,11 +180,13 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 
 	// Notify caller that call was answered
 	answerNotification := map[string]interface{}{
-		"type":      "call_answered",
-		"call_id":   callID.Hex(),
-		"chat_id":   call.ChatID.Hex(),
-		"call_type": call.Type,
-		"status":    "active",
+		"type":        "call_answered",
+		"call_id":     callID.Hex(),
+		"chat_id":     call.ChatID.Hex(),
+		"call_type":   call.Type,
+		"status":      "active",
+		"answered_by": userIDObj.Hex(),
+		"answered_at": now,
 	}
 	answerJSON, _ := json.Marshal(answerNotification)
 	
@@ -233,6 +250,85 @@ func (h *CallHandler) EndCall(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Call ended"})
+}
+
+// StartCallTimeoutChecker starts a background goroutine that periodically checks for timed-out calls
+func (h *CallHandler) StartCallTimeoutChecker() {
+	go func() {
+		ticker := time.NewTicker(CallTimeoutCheckInterval)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			h.checkTimedOutCalls()
+		}
+	}()
+	log.Println("✅ Call timeout checker started")
+}
+
+// checkTimedOutCalls finds and ends calls that have been ringing for too long
+func (h *CallHandler) checkTimedOutCalls() {
+	ctx := context.Background()
+	timeoutThreshold := time.Now().Add(-CallTimeoutDuration)
+
+	// Find calls that are still ringing and started before the threshold
+	filter := bson.M{
+		"status":    "ringing",
+		"started_at": bson.M{"$lt": timeoutThreshold},
+	}
+
+	cursor, err := h.db.MongoDB.Collection("calls").Find(ctx, filter)
+	if err != nil {
+		log.Printf("Error finding timed-out calls: %v", err)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var timedOutCalls []models.Call
+	if err := cursor.All(ctx, &timedOutCalls); err != nil {
+		log.Printf("Error reading timed-out calls: %v", err)
+		return
+	}
+
+	for _, call := range timedOutCalls {
+		now := time.Now()
+		_, err := h.db.MongoDB.Collection("calls").UpdateOne(
+			ctx,
+			bson.M{"_id": call.ID},
+			bson.M{"$set": bson.M{
+				"status":   "ended",
+				"ended_at": now,
+			}},
+		)
+
+		if err != nil {
+			log.Printf("Error ending timed-out call %s: %v", call.ID.Hex(), err)
+			continue
+		}
+
+		log.Printf("⏱️ Call %s timed out after %v", call.ID.Hex(), CallTimeoutDuration)
+
+		// Notify all call members that the call timed out
+		endNotification := map[string]interface{}{
+			"type":      "call_ended",
+			"call_id":   call.ID.Hex(),
+			"chat_id":   call.ChatID.Hex(),
+			"call_type": call.Type,
+			"status":    "ended",
+			"reason":    "timeout",
+		}
+		endJSON, _ := json.Marshal(endNotification)
+
+		// Broadcast to room
+		h.hub.BroadcastJSONToRoom(call.ChatID, endJSON)
+		// Also send directly to all call members
+		for _, memberID := range call.Members {
+			h.hub.SendJSONToUser(memberID, endJSON)
+		}
+	}
+
+	if len(timedOutCalls) > 0 {
+		log.Printf("⏱️ Ended %d timed-out call(s)", len(timedOutCalls))
+	}
 }
 
 

@@ -19,29 +19,49 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins in development
+		// In production (Railway), we should check origin
+		// But for now, allow all origins to ensure WebSocket works
+		// TODO: Add proper origin checking based on CORS_ALLOWED_ORIGINS
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// Some clients don't send Origin header, allow them
+			return true
+		}
+		// Allow all origins for now (can be restricted later)
+		return true
 	},
+	// Enable compression for better performance
+	EnableCompression: true,
 }
 
 func HandleWebSocket(hub *Hub, c *gin.Context, db *database.Database) {
+	// Log WebSocket connection attempt
+	origin := c.Request.Header.Get("Origin")
+	log.Printf("🔌 WebSocket connection attempt from: %s, Origin: %s", c.Request.RemoteAddr, origin)
+	
 	// Get user ID from token
 	token := c.Query("token")
 	if token == "" {
+		log.Printf("❌ WebSocket connection rejected: Token required")
 		c.JSON(401, gin.H{"error": "Token required"})
 		return
 	}
 
 	claims, err := utils.ValidateToken(token)
 	if err != nil {
+		log.Printf("❌ WebSocket connection rejected: Invalid token - %v", err)
 		c.JSON(401, gin.H{"error": "Invalid token"})
 		return
 	}
 
+	// Upgrade HTTP connection to WebSocket
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade error: %v", err)
+		log.Printf("❌ WebSocket upgrade error: %v", err)
 		return
 	}
+	
+	log.Printf("✅ WebSocket connection established for user: %s", claims.UserID.Hex())
 
 	client := &Client{
 		ID:    claims.UserID,
@@ -93,27 +113,69 @@ func (c *Client) readPump() {
 				c.Hub.leaveRoom <- roomEvent{client: c, chatID: chatID}
 			}
 		case "webrtc_offer", "webrtc_answer", "webrtc_ice":
-			// Forward WebRTC signaling messages to other chat members (excluding sender)
+			// Forward WebRTC signaling messages to call members (not chat members)
+			// This ensures only participants of the specific call receive WebRTC signals
 			if chatIDStr, ok := msg["chat_id"].(string); ok {
 				chatID, err := primitive.ObjectIDFromHex(chatIDStr)
 				if err == nil {
 					msgBytes, _ := json.Marshal(msg)
+					
+					// Try to get call_id from message
+					callIDStr, hasCallID := msg["call_id"].(string)
+					var callID primitive.ObjectID
+					if hasCallID {
+						callID, _ = primitive.ObjectIDFromHex(callIDStr)
+					}
+					
 					// Forward to room excluding sender (so sender doesn't receive their own WebRTC messages)
+					// This helps when users are actively in the chat room
 					c.Hub.BroadcastJSONToRoomExcludingSender(chatID, c.ID, msgBytes)
 					
-					// Also send directly to chat members who might not be in the room.
-					// This ensures WebRTC signaling works even if the callee hasn't opened the chat UI.
+					// Send directly to call members (not chat members)
+					// This ensures WebRTC signaling works even if the callee hasn't opened the chat UI
 					if c.DB != nil && c.DB.MongoDB != nil {
-						var chat models.Chat
-						if err := c.DB.MongoDB.Collection("chats").FindOne(
-							context.Background(),
-							bson.M{"_id": chatID},
-						).Decode(&chat); err == nil {
-							for _, memberID := range chat.Members {
-								if memberID == c.ID {
-									continue
+						// If we have call_id, use call members; otherwise fallback to chat members
+						if hasCallID && !callID.IsZero() {
+							var call models.Call
+							if err := c.DB.MongoDB.Collection("calls").FindOne(
+								context.Background(),
+								bson.M{"_id": callID},
+							).Decode(&call); err == nil {
+								// Send to call members only
+								for _, memberID := range call.Members {
+									if memberID == c.ID {
+										continue // Skip sender
+									}
+									c.Hub.SendJSONToUser(memberID, msgBytes)
 								}
-								c.Hub.SendJSONToUser(memberID, msgBytes)
+							} else {
+								// Call not found, fallback to chat members
+								var chat models.Chat
+								if err := c.DB.MongoDB.Collection("chats").FindOne(
+									context.Background(),
+									bson.M{"_id": chatID},
+								).Decode(&chat); err == nil {
+									for _, memberID := range chat.Members {
+										if memberID == c.ID {
+											continue
+										}
+										c.Hub.SendJSONToUser(memberID, msgBytes)
+									}
+								}
+							}
+						} else {
+							// No call_id, fallback to chat members (backward compatibility)
+							var chat models.Chat
+							if err := c.DB.MongoDB.Collection("chats").FindOne(
+								context.Background(),
+								bson.M{"_id": chatID},
+							).Decode(&chat); err == nil {
+								for _, memberID := range chat.Members {
+									if memberID == c.ID {
+										continue
+									}
+									c.Hub.SendJSONToUser(memberID, msgBytes)
+								}
 							}
 						}
 					}

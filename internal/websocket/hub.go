@@ -183,13 +183,12 @@ func (h *Hub) SendJSONToUser(userID primitive.ObjectID, data []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for client := range h.clients {
-		if client.ID != userID {
-			continue
-		}
-		select {
-		case client.Send <- data:
-		default:
-			// If the client's send buffer is full, drop the message rather than blocking.
+		if client.ID == userID {
+			select {
+			case client.Send <- data:
+			default:
+				// If the client's send buffer is full, drop the message rather than blocking.
+			}
 		}
 	}
 }
