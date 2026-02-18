@@ -189,6 +189,17 @@ func (h *CallHandler) EndCall(c *gin.Context) {
 		return
 	}
 
+	// Load call to get chat ID and members
+	var call models.Call
+	err = h.db.MongoDB.Collection("calls").FindOne(
+		context.Background(),
+		bson.M{"_id": callID},
+	).Decode(&call)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Call not found"})
+		return
+	}
+
 	now := time.Now()
 	_, err = h.db.MongoDB.Collection("calls").UpdateOne(
 		context.Background(),
@@ -202,6 +213,23 @@ func (h *CallHandler) EndCall(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to end call"})
 		return
+	}
+
+	// Notify all call members that the call has ended
+	endNotification := map[string]interface{}{
+		"type":      "call_ended",
+		"call_id":   callID.Hex(),
+		"chat_id":   call.ChatID.Hex(),
+		"call_type": call.Type,
+		"status":    "ended",
+	}
+	endJSON, _ := json.Marshal(endNotification)
+	
+	// Broadcast to room (for users currently in the chat)
+	h.hub.BroadcastJSONToRoom(call.ChatID, endJSON)
+	// Also send directly to all call members
+	for _, memberID := range call.Members {
+		h.hub.SendJSONToUser(memberID, endJSON)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Call ended"})
