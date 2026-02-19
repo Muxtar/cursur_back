@@ -120,10 +120,9 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 	}
 	callJSON, _ := json.Marshal(callNotification)
 
-	// SINGLE DELIVERY PATH: Send directly to call members (excludes caller) + room broadcast excluding caller
-	// Room broadcast is needed for users actively in chat but not in call members list
+	// SINGLE DELIVERY PATH: Send directly to call members ONLY (no room broadcast)
 	recipientCount := len(members) - 1 // Exclude caller
-	log.Printf("📡 EVENT_OUT call call_id=%s chat_id=%s message_id=%s sender_id=%s delivery_path=direct:members+room:excluding:sender recipients=%d",
+	log.Printf("📡 EVENT_OUT call call_id=%s chat_id=%s message_id=%s sender_id=%s delivery_path=direct:members recipients=%d",
 		call.ID.Hex(), chatID.Hex(), messageID, call.CallerID.Hex(), recipientCount)
 	for _, memberID := range members {
 		if memberID == call.CallerID {
@@ -131,7 +130,6 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 		}
 		h.hub.SendJSONToUser(memberID, callJSON)
 	}
-	h.hub.BroadcastJSONToRoomExcludingSender(chatID, call.CallerID, callJSON)
 
 	c.JSON(http.StatusCreated, call)
 }

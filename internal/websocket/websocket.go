@@ -145,9 +145,7 @@ func (c *Client) readPump() {
 					callID, _ = primitive.ObjectIDFromHex(callIDStr)
 				}
 				
-				// SINGLE DELIVERY PATH: Send to call members directly
-				// Only use room broadcast as fallback if call not found
-				delivered := false
+				// SINGLE DELIVERY PATH: Send to call members directly ONLY (no fallback)
 				if c.DB != nil && c.DB.MongoDB != nil {
 					if hasCallID && !callID.IsZero() {
 						var call models.Call
@@ -155,34 +153,20 @@ func (c *Client) readPump() {
 							context.Background(),
 							bson.M{"_id": callID},
 						).Decode(&call); err == nil {
-							// PRIMARY PATH: Send directly to call members (excludes sender automatically)
-							log.Printf("📡 WebRTC signaling [%s] call_id=%s sender=%s message_id=%s: sending to %d call members",
-								msg["type"], callID.Hex(), c.ID.Hex(), msg["message_id"], len(call.Members))
+							// SINGLE PATH: Send directly to call members (excludes sender automatically)
+							log.Printf("📡 EVENT_OUT webrtc_%s call_id=%s chat_id=%s sender=%s message_id=%s delivery_path=direct:members recipients=%d",
+								msg["type"], callID.Hex(), chatID.Hex(), c.ID.Hex(), msg["message_id"], len(call.Members)-1)
 							for _, memberID := range call.Members {
 								if memberID == c.ID {
 									continue // Skip sender
 								}
 								c.Hub.SendJSONToUser(memberID, msgBytes)
-								delivered = true
 							}
 						} else {
-							log.Printf("⚠️ Call %s not found, falling back to chat room broadcast", callID.Hex())
+							log.Printf("⚠️ Call %s not found, cannot deliver WebRTC signaling message", callID.Hex())
 						}
-					}
-					
-					// FALLBACK PATH: Only if call not found or no call_id, use room broadcast
-					if !delivered {
-						var chat models.Chat
-						if err := c.DB.MongoDB.Collection("chats").FindOne(
-							context.Background(),
-							bson.M{"_id": chatID},
-						).Decode(&chat); err == nil {
-							log.Printf("📡 WebRTC signaling [%s] chat_id=%s sender=%s message_id=%s: falling back to room broadcast (%d members)",
-								msg["type"], chatID.Hex(), c.ID.Hex(), msg["message_id"], len(chat.Members))
-							c.Hub.BroadcastJSONToRoomExcludingSender(chatID, c.ID, msgBytes)
-						} else {
-							log.Printf("⚠️ Chat %s not found, cannot deliver WebRTC message", chatID.Hex())
-						}
+					} else {
+						log.Printf("⚠️ No call_id in WebRTC signaling message, cannot deliver")
 					}
 				}
 			}
