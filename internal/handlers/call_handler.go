@@ -106,7 +106,7 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 
 	// Broadcast call via WebSocket to call members ONLY
 	// CRITICAL: Use SINGLE delivery path to prevent duplicates
-	// Prefer direct send to call members; room broadcast is fallback only
+	messageID := primitive.NewObjectID().Hex()
 	callNotification := map[string]interface{}{
 		"type":       "call",
 		"call_id":    call.ID.Hex(),
@@ -114,24 +114,23 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 		"call_type":  call.Type,
 		"caller_id":  call.CallerID.Hex(),
 		"status":     call.Status,
-		"message_id": primitive.NewObjectID().Hex(), // Unique message ID for deduplication
+		"message_id": messageID,
 		"timestamp":  time.Now().Unix(),
+		"sender_id":  call.CallerID.Hex(),
 	}
 	callJSON, _ := json.Marshal(callNotification)
 
-	// PRIMARY PATH: Send directly to call members (excludes caller automatically)
-	log.Printf("📞 Call initiated call_id=%s caller=%s: sending to %d call members",
-		call.ID.Hex(), call.CallerID.Hex(), len(members))
+	// SINGLE DELIVERY PATH: Send directly to call members (excludes caller) + room broadcast excluding caller
+	// Room broadcast is needed for users actively in chat but not in call members list
+	recipientCount := len(members) - 1 // Exclude caller
+	log.Printf("📡 EVENT_OUT call call_id=%s chat_id=%s message_id=%s sender_id=%s delivery_path=direct:members+room:excluding:sender recipients=%d",
+		call.ID.Hex(), chatID.Hex(), messageID, call.CallerID.Hex(), recipientCount)
 	for _, memberID := range members {
 		if memberID == call.CallerID {
 			continue // Skip caller
 		}
 		h.hub.SendJSONToUser(memberID, callJSON)
 	}
-	
-	// FALLBACK PATH: Broadcast to room EXCLUDING caller to prevent caller receiving their own call event
-	// This ensures users actively in chat receive the call even if not in call members list
-	// CRITICAL: Exclude sender (caller) to prevent duplicate/self-call events
 	h.hub.BroadcastJSONToRoomExcludingSender(chatID, call.CallerID, callJSON)
 
 	c.JSON(http.StatusCreated, call)
@@ -192,6 +191,7 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 
 	// Notify caller that call was answered
 	// CRITICAL: Use SINGLE delivery path to prevent duplicates
+	messageID := primitive.NewObjectID().Hex()
 	answerNotification := map[string]interface{}{
 		"type":        "call_answered",
 		"call_id":     callID.Hex(),
@@ -200,18 +200,16 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 		"status":      "active",
 		"answered_by": userIDObj.Hex(),
 		"answered_at": now,
-		"message_id":  primitive.NewObjectID().Hex(), // Unique message ID for deduplication
+		"message_id":  messageID,
 		"timestamp":   now.Unix(),
+		"sender_id":   userIDObj.Hex(),
 	}
 	answerJSON, _ := json.Marshal(answerNotification)
 	
-	// PRIMARY PATH: Send directly to caller
-	log.Printf("📞 Call answered call_id=%s answered_by=%s caller=%s: sending call_answered to caller",
-		callID.Hex(), userIDObj.Hex(), call.CallerID.Hex())
+	// SINGLE DELIVERY PATH: Send directly to caller ONLY (no room broadcast to prevent duplicates)
+	log.Printf("📡 EVENT_OUT call_answered call_id=%s chat_id=%s message_id=%s sender_id=%s delivery_path=direct:user:%s recipients=1",
+		callID.Hex(), call.ChatID.Hex(), messageID, userIDObj.Hex(), call.CallerID.Hex())
 	h.hub.SendJSONToUser(call.CallerID, answerJSON)
-	
-	// FALLBACK PATH: Also broadcast to room (safe because SendJSONToUser already delivered to caller)
-	h.hub.BroadcastJSONToRoom(call.ChatID, answerJSON)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Call answered"})
 }
@@ -252,25 +250,24 @@ func (h *CallHandler) EndCall(c *gin.Context) {
 
 	// Notify all call members that the call has ended
 	// CRITICAL: Use SINGLE delivery path to prevent duplicates
+	messageID := primitive.NewObjectID().Hex()
 	endNotification := map[string]interface{}{
 		"type":       "call_ended",
 		"call_id":    callID.Hex(),
 		"chat_id":    call.ChatID.Hex(),
 		"call_type":  call.Type,
 		"status":     "ended",
-		"message_id": primitive.NewObjectID().Hex(),
+		"message_id": messageID,
 		"timestamp":  now.Unix(),
 	}
 	endJSON, _ := json.Marshal(endNotification)
 	
-	// PRIMARY PATH: Send directly to call members
-	log.Printf("📞 Call ended call_id=%s: sending to %d call members", callID.Hex(), len(call.Members))
+	// SINGLE DELIVERY PATH: Send directly to call members ONLY (no room broadcast)
+	log.Printf("📡 EVENT_OUT call_ended call_id=%s chat_id=%s message_id=%s delivery_path=direct:members recipients=%d",
+		callID.Hex(), call.ChatID.Hex(), messageID, len(call.Members))
 	for _, memberID := range call.Members {
 		h.hub.SendJSONToUser(memberID, endJSON)
 	}
-	
-	// FALLBACK PATH: Also broadcast to room (safe because SendJSONToUser already delivered)
-	h.hub.BroadcastJSONToRoom(call.ChatID, endJSON)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Call ended"})
 }
@@ -331,6 +328,7 @@ func (h *CallHandler) checkTimedOutCalls() {
 		log.Printf("⏱️ Call %s timed out after %v", call.ID.Hex(), CallTimeoutDuration)
 
 		// Notify all call members that the call timed out
+		messageID := primitive.NewObjectID().Hex()
 		endNotification := map[string]interface{}{
 			"type":       "call_ended",
 			"call_id":    call.ID.Hex(),
@@ -338,17 +336,17 @@ func (h *CallHandler) checkTimedOutCalls() {
 			"call_type":  call.Type,
 			"status":     "ended",
 			"reason":     "timeout",
-			"message_id": primitive.NewObjectID().Hex(),
+			"message_id": messageID,
 			"timestamp":  time.Now().Unix(),
 		}
 		endJSON, _ := json.Marshal(endNotification)
 
-		// PRIMARY PATH: Send directly to call members
+		// SINGLE DELIVERY PATH: Send directly to call members ONLY (no room broadcast)
+		log.Printf("📡 EVENT_OUT call_ended call_id=%s chat_id=%s message_id=%s reason=timeout delivery_path=direct:members recipients=%d",
+			call.ID.Hex(), call.ChatID.Hex(), messageID, len(call.Members))
 		for _, memberID := range call.Members {
 			h.hub.SendJSONToUser(memberID, endJSON)
 		}
-		// FALLBACK PATH: Also broadcast to room
-		h.hub.BroadcastJSONToRoom(call.ChatID, endJSON)
 	}
 
 	if len(timedOutCalls) > 0 {
