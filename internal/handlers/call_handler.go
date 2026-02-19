@@ -213,6 +213,9 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 }
 
 func (h *CallHandler) EndCall(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	userIDObj := userID.(primitive.ObjectID)
+	
 	callIDStr := c.Param("call_id")
 	callID, err := primitive.ObjectIDFromHex(callIDStr)
 	if err != nil {
@@ -230,6 +233,10 @@ func (h *CallHandler) EndCall(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Call not found"})
 		return
 	}
+	
+	// INSTRUMENTATION: Log who is ending the call
+	log.Printf("📞 EndCall API called call_id=%s chat_id=%s user_id=%s call_status=%s caller_id=%s",
+		callID.Hex(), call.ChatID.Hex(), userIDObj.Hex(), call.Status, call.CallerID.Hex())
 
 	now := time.Now()
 	_, err = h.db.MongoDB.Collection("calls").UpdateOne(
