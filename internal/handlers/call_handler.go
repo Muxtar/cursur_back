@@ -129,9 +129,10 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 		h.hub.SendJSONToUser(memberID, callJSON)
 	}
 	
-	// FALLBACK PATH: Also broadcast to room for users actively in chat (they may not be in call members list)
-	// This is safe because SendJSONToUser already delivered to call members
-	h.hub.BroadcastJSONToRoom(chatID, callJSON)
+	// FALLBACK PATH: Broadcast to room EXCLUDING caller to prevent caller receiving their own call event
+	// This ensures users actively in chat receive the call even if not in call members list
+	// CRITICAL: Exclude sender (caller) to prevent duplicate/self-call events
+	h.hub.BroadcastJSONToRoomExcludingSender(chatID, call.CallerID, callJSON)
 
 	c.JSON(http.StatusCreated, call)
 }
