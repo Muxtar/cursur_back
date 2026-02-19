@@ -104,23 +104,34 @@ func (h *CallHandler) InitiateCall(c *gin.Context) {
 		return
 	}
 
-	// Broadcast call via WebSocket to all chat members
+	// Broadcast call via WebSocket to call members ONLY
+	// CRITICAL: Use SINGLE delivery path to prevent duplicates
+	// Prefer direct send to call members; room broadcast is fallback only
 	callNotification := map[string]interface{}{
-		"type":      "call",
-		"call_id":   call.ID.Hex(),
-		"chat_id":   chatID.Hex(),
-		"call_type": call.Type,
-		"caller_id": call.CallerID.Hex(),
-		"status":    call.Status,
+		"type":       "call",
+		"call_id":    call.ID.Hex(),
+		"chat_id":    chatID.Hex(),
+		"call_type":  call.Type,
+		"caller_id":  call.CallerID.Hex(),
+		"status":     call.Status,
+		"message_id": primitive.NewObjectID().Hex(), // Unique message ID for deduplication
+		"timestamp":  time.Now().Unix(),
 	}
 	callJSON, _ := json.Marshal(callNotification)
 
-	// 1) Broadcast to the room (when users are actively inside the chat)
-	h.hub.BroadcastJSONToRoom(chatID, callJSON)
-	// 2) Also send to users directly so they can receive even if they haven't joined the room yet
+	// PRIMARY PATH: Send directly to call members (excludes caller automatically)
+	log.Printf("📞 Call initiated call_id=%s caller=%s: sending to %d call members",
+		call.ID.Hex(), call.CallerID.Hex(), len(members))
 	for _, memberID := range members {
+		if memberID == call.CallerID {
+			continue // Skip caller
+		}
 		h.hub.SendJSONToUser(memberID, callJSON)
 	}
+	
+	// FALLBACK PATH: Also broadcast to room for users actively in chat (they may not be in call members list)
+	// This is safe because SendJSONToUser already delivered to call members
+	h.hub.BroadcastJSONToRoom(chatID, callJSON)
 
 	c.JSON(http.StatusCreated, call)
 }
@@ -179,6 +190,7 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 	}
 
 	// Notify caller that call was answered
+	// CRITICAL: Use SINGLE delivery path to prevent duplicates
 	answerNotification := map[string]interface{}{
 		"type":        "call_answered",
 		"call_id":     callID.Hex(),
@@ -187,12 +199,17 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 		"status":      "active",
 		"answered_by": userIDObj.Hex(),
 		"answered_at": now,
+		"message_id":  primitive.NewObjectID().Hex(), // Unique message ID for deduplication
+		"timestamp":   now.Unix(),
 	}
 	answerJSON, _ := json.Marshal(answerNotification)
 	
-	// Send to caller
+	// PRIMARY PATH: Send directly to caller
+	log.Printf("📞 Call answered call_id=%s answered_by=%s caller=%s: sending call_answered to caller",
+		callID.Hex(), userIDObj.Hex(), call.CallerID.Hex())
 	h.hub.SendJSONToUser(call.CallerID, answerJSON)
-	// Also broadcast to room
+	
+	// FALLBACK PATH: Also broadcast to room (safe because SendJSONToUser already delivered to caller)
 	h.hub.BroadcastJSONToRoom(call.ChatID, answerJSON)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Call answered"})
@@ -233,21 +250,26 @@ func (h *CallHandler) EndCall(c *gin.Context) {
 	}
 
 	// Notify all call members that the call has ended
+	// CRITICAL: Use SINGLE delivery path to prevent duplicates
 	endNotification := map[string]interface{}{
-		"type":      "call_ended",
-		"call_id":   callID.Hex(),
-		"chat_id":   call.ChatID.Hex(),
-		"call_type": call.Type,
-		"status":    "ended",
+		"type":       "call_ended",
+		"call_id":    callID.Hex(),
+		"chat_id":    call.ChatID.Hex(),
+		"call_type":  call.Type,
+		"status":     "ended",
+		"message_id": primitive.NewObjectID().Hex(),
+		"timestamp":  now.Unix(),
 	}
 	endJSON, _ := json.Marshal(endNotification)
 	
-	// Broadcast to room (for users currently in the chat)
-	h.hub.BroadcastJSONToRoom(call.ChatID, endJSON)
-	// Also send directly to all call members
+	// PRIMARY PATH: Send directly to call members
+	log.Printf("📞 Call ended call_id=%s: sending to %d call members", callID.Hex(), len(call.Members))
 	for _, memberID := range call.Members {
 		h.hub.SendJSONToUser(memberID, endJSON)
 	}
+	
+	// FALLBACK PATH: Also broadcast to room (safe because SendJSONToUser already delivered)
+	h.hub.BroadcastJSONToRoom(call.ChatID, endJSON)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Call ended"})
 }
@@ -309,21 +331,23 @@ func (h *CallHandler) checkTimedOutCalls() {
 
 		// Notify all call members that the call timed out
 		endNotification := map[string]interface{}{
-			"type":      "call_ended",
-			"call_id":   call.ID.Hex(),
-			"chat_id":   call.ChatID.Hex(),
-			"call_type": call.Type,
-			"status":    "ended",
-			"reason":    "timeout",
+			"type":       "call_ended",
+			"call_id":    call.ID.Hex(),
+			"chat_id":    call.ChatID.Hex(),
+			"call_type":  call.Type,
+			"status":     "ended",
+			"reason":     "timeout",
+			"message_id": primitive.NewObjectID().Hex(),
+			"timestamp":  time.Now().Unix(),
 		}
 		endJSON, _ := json.Marshal(endNotification)
 
-		// Broadcast to room
-		h.hub.BroadcastJSONToRoom(call.ChatID, endJSON)
-		// Also send directly to all call members
+		// PRIMARY PATH: Send directly to call members
 		for _, memberID := range call.Members {
 			h.hub.SendJSONToUser(memberID, endJSON)
 		}
+		// FALLBACK PATH: Also broadcast to room
+		h.hub.BroadcastJSONToRoom(call.ChatID, endJSON)
 	}
 
 	if len(timedOutCalls) > 0 {

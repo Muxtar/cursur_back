@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -113,70 +115,73 @@ func (c *Client) readPump() {
 				c.Hub.leaveRoom <- roomEvent{client: c, chatID: chatID}
 			}
 		case "webrtc_offer", "webrtc_answer", "webrtc_ice":
-			// Forward WebRTC signaling messages to call members (not chat members)
-			// This ensures only participants of the specific call receive WebRTC signals
+			// Forward WebRTC signaling messages to call members ONLY
+			// CRITICAL: Use SINGLE delivery path to prevent duplicates
+			// Prefer direct send to call members; room broadcast is fallback only
 			if chatIDStr, ok := msg["chat_id"].(string); ok {
 				chatID, err := primitive.ObjectIDFromHex(chatIDStr)
-				if err == nil {
-					msgBytes, _ := json.Marshal(msg)
-					
-					// Try to get call_id from message
-					callIDStr, hasCallID := msg["call_id"].(string)
-					var callID primitive.ObjectID
-					if hasCallID {
-						callID, _ = primitive.ObjectIDFromHex(callIDStr)
-					}
-					
-					// Forward to room excluding sender (so sender doesn't receive their own WebRTC messages)
-					// This helps when users are actively in the chat room
-					c.Hub.BroadcastJSONToRoomExcludingSender(chatID, c.ID, msgBytes)
-					
-					// Send directly to call members (not chat members)
-					// This ensures WebRTC signaling works even if the callee hasn't opened the chat UI
-					if c.DB != nil && c.DB.MongoDB != nil {
-						// If we have call_id, use call members; otherwise fallback to chat members
-						if hasCallID && !callID.IsZero() {
-							var call models.Call
-							if err := c.DB.MongoDB.Collection("calls").FindOne(
-								context.Background(),
-								bson.M{"_id": callID},
-							).Decode(&call); err == nil {
-								// Send to call members only
-								for _, memberID := range call.Members {
-									if memberID == c.ID {
-										continue // Skip sender
-									}
-									c.Hub.SendJSONToUser(memberID, msgBytes)
+				if err != nil {
+					log.Printf("⚠️ Invalid chat_id in WebRTC message: %v", err)
+					continue
+				}
+				
+				// Add messageId and sender_id if not present
+				if _, hasMsgID := msg["message_id"]; !hasMsgID {
+					msg["message_id"] = uuid.New().String()
+				}
+				if _, hasSenderID := msg["sender_id"]; !hasSenderID {
+					msg["sender_id"] = c.ID.Hex()
+				}
+				if _, hasTS := msg["timestamp"]; !hasTS {
+					msg["timestamp"] = time.Now().Unix()
+				}
+				
+				msgBytes, _ := json.Marshal(msg)
+				
+				// Try to get call_id from message
+				callIDStr, hasCallID := msg["call_id"].(string)
+				var callID primitive.ObjectID
+				if hasCallID {
+					callID, _ = primitive.ObjectIDFromHex(callIDStr)
+				}
+				
+				// SINGLE DELIVERY PATH: Send to call members directly
+				// Only use room broadcast as fallback if call not found
+				delivered := false
+				if c.DB != nil && c.DB.MongoDB != nil {
+					if hasCallID && !callID.IsZero() {
+						var call models.Call
+						if err := c.DB.MongoDB.Collection("calls").FindOne(
+							context.Background(),
+							bson.M{"_id": callID},
+						).Decode(&call); err == nil {
+							// PRIMARY PATH: Send directly to call members (excludes sender automatically)
+							log.Printf("📡 WebRTC signaling [%s] call_id=%s sender=%s message_id=%s: sending to %d call members",
+								msg["type"], callID.Hex(), c.ID.Hex(), msg["message_id"], len(call.Members))
+							for _, memberID := range call.Members {
+								if memberID == c.ID {
+									continue // Skip sender
 								}
-							} else {
-								// Call not found, fallback to chat members
-								var chat models.Chat
-								if err := c.DB.MongoDB.Collection("chats").FindOne(
-									context.Background(),
-									bson.M{"_id": chatID},
-								).Decode(&chat); err == nil {
-									for _, memberID := range chat.Members {
-										if memberID == c.ID {
-											continue
-										}
-										c.Hub.SendJSONToUser(memberID, msgBytes)
-									}
-								}
+								c.Hub.SendJSONToUser(memberID, msgBytes)
+								delivered = true
 							}
 						} else {
-							// No call_id, fallback to chat members (backward compatibility)
-							var chat models.Chat
-							if err := c.DB.MongoDB.Collection("chats").FindOne(
-								context.Background(),
-								bson.M{"_id": chatID},
-							).Decode(&chat); err == nil {
-								for _, memberID := range chat.Members {
-									if memberID == c.ID {
-										continue
-									}
-									c.Hub.SendJSONToUser(memberID, msgBytes)
-								}
-							}
+							log.Printf("⚠️ Call %s not found, falling back to chat room broadcast", callID.Hex())
+						}
+					}
+					
+					// FALLBACK PATH: Only if call not found or no call_id, use room broadcast
+					if !delivered {
+						var chat models.Chat
+						if err := c.DB.MongoDB.Collection("chats").FindOne(
+							context.Background(),
+							bson.M{"_id": chatID},
+						).Decode(&chat); err == nil {
+							log.Printf("📡 WebRTC signaling [%s] chat_id=%s sender=%s message_id=%s: falling back to room broadcast (%d members)",
+								msg["type"], chatID.Hex(), c.ID.Hex(), msg["message_id"], len(chat.Members))
+							c.Hub.BroadcastJSONToRoomExcludingSender(chatID, c.ID, msgBytes)
+						} else {
+							log.Printf("⚠️ Chat %s not found, cannot deliver WebRTC message", chatID.Hex())
 						}
 					}
 				}
