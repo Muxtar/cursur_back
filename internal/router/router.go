@@ -63,6 +63,11 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			public.GET("/users/search", userHandler.SearchByUsername)
 		}
 
+		// Profile comments (anonymous comments about a user; profile owner can reply to commenter)
+		profileCommentHandler := handlers.NewProfileCommentHandler(db)
+		// Guest can leave a comment for a phone number without logging in
+		public.POST("/profile-comments", profileCommentHandler.CreateProfileCommentByPhone)
+
 		// Contact routes
 		contactHandler := handlers.NewContactHandler(db)
 		contacts := protected.Group("/contacts")
@@ -73,8 +78,7 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			contacts.DELETE("/:contact_id", contactHandler.DeleteContact)
 		}
 
-		// Profile comments (anonymous comments about a user; profile owner can reply to commenter)
-		profileCommentHandler := handlers.NewProfileCommentHandler(db)
+		// Profile comments (protected: create with auth, list, reply)
 		profileComments := protected.Group("/profile-comments")
 		{
 			profileComments.POST("", profileCommentHandler.CreateProfileComment)

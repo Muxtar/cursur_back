@@ -227,12 +227,7 @@ func (h *ProposalHandler) DeleteProposal(c *gin.Context) {
 		return
 	}
 
-	// Only allow deletion if status is pending
-	if proposal.Status != "pending" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Can only delete pending proposals"})
-		return
-	}
-
+	// Allow deletion for any status (pending, accepted, rejected) so user can remove from list
 	_, err = h.db.MongoDB.Collection("proposals").DeleteOne(
 		context.Background(),
 		bson.M{"_id": proposalID},

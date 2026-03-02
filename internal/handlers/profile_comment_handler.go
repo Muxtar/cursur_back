@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"chat-backend/internal/database"
@@ -24,6 +25,69 @@ func NewProfileCommentHandler(db *database.Database) *ProfileCommentHandler {
 type CreateProfileCommentRequest struct {
 	TargetUserID string `json:"target_user_id" binding:"required"`
 	Text         string `json:"text" binding:"required"`
+}
+
+// CreateProfileCommentByPhoneRequest is for unauthenticated (guest) comments by phone number.
+type CreateProfileCommentByPhoneRequest struct {
+	PhoneNumber string `json:"phone_number" binding:"required"`
+	Text        string `json:"text" binding:"required"`
+}
+
+// CreateProfileCommentByPhone creates an anonymous comment for a user by phone number. No auth required.
+// CommenterID is stored as NilObjectID (guest). When the number's owner logs in, they see it like other profile comments.
+func (h *ProfileCommentHandler) CreateProfileCommentByPhone(c *gin.Context) {
+	var req CreateProfileCommentByPhoneRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	phone := strings.TrimSpace(strings.ReplaceAll(req.PhoneNumber, " ", ""))
+	if phone == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid phone number"})
+		return
+	}
+
+	var targetUser models.User
+	err := h.db.MongoDB.Collection("users").FindOne(
+		context.Background(),
+		bson.M{"phone_number": phone},
+	).Decode(&targetUser)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found with this phone number"})
+		return
+	}
+
+	comment := models.ProfileComment{
+		ID:           primitive.NewObjectID(),
+		TargetUserID: targetUser.ID,
+		CommenterID:  primitive.NilObjectID, // guest
+		Text:         req.Text,
+		CreatedAt:    time.Now(),
+	}
+	if _, err := h.db.MongoDB.Collection("profile_comments").InsertOne(context.Background(), comment); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create comment"})
+		return
+	}
+
+	notification := models.Notification{
+		ID:        primitive.NewObjectID(),
+		UserID:    targetUser.ID,
+		Type:      "profile_comment",
+		Title:     "Yeni şərh",
+		Body:      "Nömrənizə yeni şərh yazıldı",
+		Data: map[string]interface{}{
+			"comment_id": comment.ID.Hex(),
+			"phone":      targetUser.PhoneNumber,
+		},
+		CreatedAt: time.Now(),
+	}
+	h.db.MongoDB.Collection("notifications").InsertOne(context.Background(), notification)
+
+	c.JSON(http.StatusCreated, gin.H{
+		"id":         comment.ID,
+		"text":       comment.Text,
+		"created_at": comment.CreatedAt,
+	})
 }
 
 // CreateProfileComment creates an anonymous comment about a user. Commenter is stored but not exposed.
@@ -179,6 +243,10 @@ func (h *ProfileCommentHandler) ReplyToProfileComment(c *gin.Context) {
 	}
 
 	commenterID := comment.CommenterID
+	if commenterID == primitive.NilObjectID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot reply to a comment from a guest"})
+		return
+	}
 	if commenterID == userIDObj {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot reply to your own comment"})
 		return
