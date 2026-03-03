@@ -15,6 +15,7 @@ type User struct {
 	LastName        string             `json:"last_name,omitempty" bson:"last_name,omitempty"`
 	Avatar          string             `json:"avatar" bson:"avatar"`
 	Bio             string             `json:"bio,omitempty" bson:"bio,omitempty"`
+	Profession      string             `json:"profession,omitempty" bson:"profession,omitempty"` // meslek / peşə
 	IsAnonymous     bool               `json:"is_anonymous" bson:"is_anonymous"`
 	HidePhoneNumber bool               `json:"hide_phone_number" bson:"hide_phone_number"` // Gizli numara
 	IsPremium       bool               `json:"is_premium" bson:"is_premium"`
@@ -57,11 +58,15 @@ type Contact struct {
 	CreatedAt   time.Time           `json:"created_at" bson:"created_at"`
 }
 
-// ProfileComment: anonymous comment about a user; commenter can be contacted by profile owner via "reply"
+// ProfileComment: anonymous comment about a phone number, car number, or person name.
+// target_type: "phone" -> target_user_id set, owner gets notification and can delete.
+// target_type: "car_number" | "person_name" -> only target_value set, searchable only, no delete/notification.
 type ProfileComment struct {
-	ID           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	TargetUserID primitive.ObjectID `json:"target_user_id" bson:"target_user_id"` // user being commented on
-	CommenterID  primitive.ObjectID `json:"-" bson:"commenter_id"`                // not exposed in API
-	Text         string             `json:"text" bson:"text"`
-	CreatedAt    time.Time          `json:"created_at" bson:"created_at"`
+	ID           primitive.ObjectID  `json:"id" bson:"_id,omitempty"`
+	TargetType   string              `json:"target_type" bson:"target_type"`                       // "phone" | "car_number" | "person_name"
+	TargetValue  string              `json:"target_value" bson:"target_value"`                     // phone, plate, or name (normalized)
+	TargetUserID *primitive.ObjectID `json:"target_user_id,omitempty" bson:"target_user_id,omitempty"` // only when target_type == "phone"
+	CommenterID  primitive.ObjectID  `json:"-" bson:"commenter_id"`                                // not exposed in API
+	Text         string              `json:"text" bson:"text"`
+	CreatedAt    time.Time           `json:"created_at" bson:"created_at"`
 }

@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"chat-backend/internal/database"
@@ -230,21 +232,29 @@ func (h *UserHandler) GetNearbyUsers(c *gin.Context) {
 		return
 	}
 
-	// Get radius from query (default 10km)
+	// Radius in km (default 10)
 	radius := 10.0
 	if r := c.Query("radius"); r != "" {
-		// Parse radius if provided
+		if parsed, err := strconv.ParseFloat(r, 64); err == nil && parsed > 0 {
+			radius = parsed
+		}
 	}
 
-	// Get all users with locations
+	// Optional profession filter (case-insensitive substring)
+	professionQ := strings.TrimSpace(c.Query("profession"))
+
+	filter := bson.M{
+		"_id":      bson.M{"$ne": userIDObj},
+		"location": bson.M{"$exists": true},
+	}
+	if professionQ != "" {
+		filter["profession"] = bson.M{"$regex": professionQ, "$options": "i"}
+	}
+
 	cursor, err := h.db.MongoDB.Collection("users").Find(
 		context.Background(),
-		bson.M{
-			"_id":      bson.M{"$ne": userIDObj},
-			"location": bson.M{"$exists": true},
-		},
+		filter,
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch users"})
 		return

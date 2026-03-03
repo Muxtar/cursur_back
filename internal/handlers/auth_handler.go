@@ -59,6 +59,7 @@ type RegisterWithCodeRequest struct {
 	PhoneNumber     string `json:"phone_number" binding:"required"`
 	Code            string `json:"code" binding:"required"`
 	Username        string `json:"username"`
+	Profession      string `json:"profession,omitempty"`
 	UserType        string `json:"user_type"` // "normal" or "company"
 	CompanyName     string `json:"company_name,omitempty"`
 	CompanyCategory string `json:"company_category,omitempty"`
@@ -460,6 +461,7 @@ func (h *AuthHandler) RegisterWithCode(c *gin.Context) {
 		PhoneNumber:     req.PhoneNumber,
 		QRCode:          qrBase64,
 		Username:        req.Username,
+		Profession:      req.Profession,
 		UserType:        req.UserType,
 		CompanyName:     req.CompanyName,
 		CompanyCategory: req.CompanyCategory,
