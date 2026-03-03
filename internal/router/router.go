@@ -24,6 +24,10 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 
 	api := r.Group("/api/v1")
 
+	// File serving (public so chat images/files load in browser without auth)
+	fileHandler := handlers.NewFileHandler(db)
+	api.GET("/files/:filename", fileHandler.ServeFile)
+
 	// Auth routes
 	auth := api.Group("/auth")
 	{
@@ -173,12 +177,10 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 		calls.POST("/:call_id/end", callHandler.EndCall)
 	}
 
-		// File upload routes
-		fileHandler := handlers.NewFileHandler(db)
+		// File upload (serving is public above)
 		files := protected.Group("/files")
 		{
 			files.POST("/upload", fileHandler.UploadFile)
-			files.GET("/:filename", fileHandler.ServeFile)
 		}
 
 		// Settings routes

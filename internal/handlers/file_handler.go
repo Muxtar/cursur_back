@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"chat-backend/internal/config"
 	"chat-backend/internal/database"
@@ -54,8 +55,8 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	// In production, upload to cloud storage (S3, etc.)
-	fileURL := fmt.Sprintf("/uploads/%s", filename)
+	// URL that frontend uses as getBaseUrl() + file_url -> /api/v1/files/filename
+	fileURL := fmt.Sprintf("/api/v1/files/%s", filename)
 
 	c.JSON(http.StatusOK, gin.H{
 		"file_url": fileURL,
@@ -82,7 +83,14 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 	}
 	defer file.Close()
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	// Inline for images so they display in chat; attachment for others
+	ext := strings.ToLower(filepath.Ext(filename))
+	inlineExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".svg": true}
+	if inlineExts[ext] {
+		c.Header("Content-Disposition", "inline")
+	} else {
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	}
 	c.File(filePath)
 }
 
