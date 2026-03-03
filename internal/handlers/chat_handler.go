@@ -230,11 +230,36 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
+	// Build set of reply_to IDs to populate reply_to in one query
+	replyIDs := make(map[primitive.ObjectID]bool)
+	for _, m := range messages {
+		if m.ReplyToID != nil {
+			replyIDs[*m.ReplyToID] = true
+		}
+	}
+	var replyMap map[string]models.Message
+	if len(replyIDs) > 0 {
+		ids := make([]primitive.ObjectID, 0, len(replyIDs))
+		for id := range replyIDs {
+			ids = append(ids, id)
+		}
+		cur, err := h.db.MongoDB.Collection("messages").Find(context.Background(), bson.M{"_id": bson.M{"$in": ids}})
+		if err == nil {
+			var replies []models.Message
+			_ = cur.All(context.Background(), &replies)
+			cur.Close(context.Background())
+			replyMap = make(map[string]models.Message)
+			for _, r := range replies {
+				replyMap[r.ID.Hex()] = r
+			}
+		}
+	}
+
 	// Mask anonymous sender for the recipient (do not expose sender_id when chat has AnonymousFromUserID)
 	var out []map[string]interface{}
 	for _, m := range messages {
 		raw := map[string]interface{}{
-			"id":           m.ID,
+			"id":            m.ID,
 			"chat_id":      m.ChatID,
 			"sender_id":    m.SenderID,
 			"content":      m.Content,
@@ -243,10 +268,29 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 			"status":       m.Status,
 			"created_at":   m.CreatedAt,
 			"updated_at":   m.UpdatedAt,
+			"file_url":     m.FileURL,
+			"thumbnail_url": m.ThumbnailURL,
+			"file_name":    m.FileName,
+			"file_size":    m.FileSize,
+			"duration":     m.Duration,
+			"is_edited":    m.IsEdited,
+			"edited_at":    m.EditedAt,
+			"reactions":    m.Reactions,
+			"reply_to_id":  m.ReplyToID,
+			"location":     m.Location,
+			"contact":      m.Contact,
 		}
 		if chat.AnonymousFromUserID != nil && m.SenderID == *chat.AnonymousFromUserID && m.SenderID != userIDObj {
 			raw["sender_id"] = nil
 			raw["is_anonymous"] = true
+		}
+		if m.ReplyToID != nil && replyMap != nil {
+			if reply, ok := replyMap[m.ReplyToID.Hex()]; ok {
+				raw["reply_to"] = map[string]interface{}{
+					"id": reply.ID, "content": reply.Content, "message_type": reply.MessageType,
+					"sender_id": reply.SenderID, "file_url": reply.FileURL, "file_name": reply.FileName,
+				}
+			}
 		}
 		out = append(out, raw)
 	}
