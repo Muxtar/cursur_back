@@ -209,6 +209,18 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			settings.GET("/data-usage", settingsHandler.GetDataUsage)
 		}
 
+		// Company routes
+		companyHandler := handlers.NewCompanyHandler(db)
+		companies := protected.Group("/companies")
+		{
+			companies.POST("", companyHandler.CreateCompany)
+			companies.GET("/me", companyHandler.GetMyCompanies)
+			companies.GET("/user/:user_id", companyHandler.GetUserCompanies)
+			companies.PUT("/:company_id", companyHandler.UpdateCompany)
+			companies.DELETE("/:company_id", companyHandler.DeleteCompany)
+			companies.GET("/categories", companyHandler.GetCategories)
+		}
+
 		// Product routes
 		productHandler := handlers.NewProductHandler(db)
 		products := protected.Group("/products")

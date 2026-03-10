@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const defaultJWTSecret = "your-secret-key"
+
 type Config struct {
 	Port               string
 	MongoDBURI         string
@@ -25,6 +27,7 @@ type Config struct {
 func Load() *Config {
 	// For MongoDB: Railway uses MONGO_URL or MONGODB_URI
 	// Railway MongoDB service provides MONGO_URL automatically
+	
 	mongoURI := getEnv("MONGODB_URI", "")
 	if mongoURI == "" {
 		mongoURI = getEnv("MONGO_URL", "")
@@ -104,11 +107,16 @@ func Load() *Config {
 	}
 	log.Printf("CORS allowed origins: %v", corsOrigins)
 
+	jwtSecret := getEnv("JWT_SECRET", "")
+	if jwtSecret == "" || jwtSecret == defaultJWTSecret {
+		log.Fatal("FATAL: JWT_SECRET environment variable is not set or is using the insecure default value. Set a strong random secret before running in production.")
+	}
+
 	return &Config{
 		Port:               getEnv("PORT", "8080"),
 		MongoDBURI:         mongoURI,
 		MongoDBName:        mongoDBName,
-		JWTSecret:           getEnv("JWT_SECRET", "your-secret-key"),
+		JWTSecret:           jwtSecret,
 		JWTExpiration:       getEnv("JWT_EXPIRATION", "24h"),
 		UploadDir:           getEnv("UPLOAD_DIR", "./uploads"),
 		MaxFileSize:         10485760, // 10MB
