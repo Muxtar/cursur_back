@@ -196,6 +196,7 @@ func (h *CallHandler) AnswerCall(c *gin.Context) {
 		"chat_id":     call.ChatID.Hex(),
 		"call_type":   call.Type,
 		"status":      "active",
+		"caller_id":   call.CallerID.Hex(), // Caller identity — callee may also receive this on room broadcast
 		"answered_by": userIDObj.Hex(),
 		"answered_at": now,
 		"message_id":  messageID,
