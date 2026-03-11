@@ -17,6 +17,17 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+const (
+	// writeWait is the timeout for writing a message to the peer.
+	writeWait = 10 * time.Second
+	// pongWait is how long to wait for a pong reply from the client.
+	// Railway proxy drops idle connections after ~60s, so we keep well below that.
+	pongWait = 55 * time.Second
+	// pingPeriod is how often the server sends a WebSocket ping frame.
+	// Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10 // ~49 seconds
+)
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -86,6 +97,13 @@ func (c *Client) readPump() {
 		c.Conn.Close()
 	}()
 
+	// Set initial read deadline; reset every time a pong is received.
+	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	for {
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
@@ -102,6 +120,9 @@ func (c *Client) readPump() {
 
 		// Handle different message types
 		switch msg["type"] {
+		case "ping":
+			// Application-level ping — just keeps Railway proxy from closing the connection.
+			// No response needed; protocol-level pings from writePump handle the real keepalive.
 		case "join_chat":
 			if chatIDStr, ok := msg["chat_id"].(string); ok {
 				chatID, _ := primitive.ObjectIDFromHex(chatIDStr)
@@ -175,18 +196,29 @@ func (c *Client) readPump() {
 }
 
 func (c *Client) writePump() {
-	defer c.Conn.Close()
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.Conn.Close()
+	}()
 
 	for {
 		select {
 		case message, ok := <-c.Send:
+			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-
 			if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				log.Printf("Write error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			// Send a WebSocket protocol-level ping to keep Railway proxy alive.
+			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("Ping error (closing): %v", err)
 				return
 			}
 		}
