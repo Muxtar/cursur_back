@@ -310,11 +310,13 @@ func (h *ProfileCommentHandler) GetProfileComments(c *gin.Context) {
 
 	// Return without commenter_id (anonymous)
 	out := make([]map[string]interface{}, 0, len(comments))
-	for _, c := range comments {
+	for _, pc := range comments {
 		out = append(out, map[string]interface{}{
-			"id":         c.ID,
-			"text":       c.Text,
-			"created_at": c.CreatedAt,
+			"id":            pc.ID,
+			"text":          pc.Text,
+			"like_count":    pc.LikeCount,
+			"dislike_count": pc.DislikeCount,
+			"created_at":    pc.CreatedAt,
 		})
 	}
 	c.JSON(http.StatusOK, out)

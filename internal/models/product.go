@@ -27,24 +27,27 @@ type Product struct {
 
 // Comment represents a comment on a product
 type Comment struct {
-	ID        primitive.ObjectID   `json:"id" bson:"_id,omitempty"`
-	ProductID primitive.ObjectID   `json:"product_id" bson:"product_id"`
-	UserID    primitive.ObjectID   `json:"user_id" bson:"user_id"`
-	Content   string               `json:"content" bson:"content"`
-	ParentID  *primitive.ObjectID  `json:"parent_id,omitempty" bson:"parent_id,omitempty"` // For reply comments
-	LikeCount int                  `json:"like_count" bson:"like_count"`
-	IsSpam    bool                 `json:"is_spam" bson:"is_spam"`
-	CreatedAt time.Time            `json:"created_at" bson:"created_at"`
-	UpdatedAt time.Time            `json:"updated_at" bson:"updated_at"`
+	ID           primitive.ObjectID  `json:"id" bson:"_id,omitempty"`
+	ProductID    primitive.ObjectID  `json:"product_id" bson:"product_id"`
+	UserID       primitive.ObjectID  `json:"user_id" bson:"user_id"`
+	Content      string              `json:"content" bson:"content"`
+	ParentID     *primitive.ObjectID `json:"parent_id,omitempty" bson:"parent_id,omitempty"` // For reply comments
+	LikeCount    int                 `json:"like_count" bson:"like_count"`
+	DislikeCount int                 `json:"dislike_count" bson:"dislike_count"`
+	IsSpam       bool                `json:"is_spam" bson:"is_spam"`
+	CreatedAt    time.Time           `json:"created_at" bson:"created_at"`
+	UpdatedAt    time.Time           `json:"updated_at" bson:"updated_at"`
 }
 
-// Like represents a like on a product or comment
+// Like represents a like or dislike on a product, comment, or profile comment
 type Like struct {
-	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	ProductID *primitive.ObjectID `json:"product_id,omitempty" bson:"product_id,omitempty"` // For product likes
-	CommentID *primitive.ObjectID `json:"comment_id,omitempty" bson:"comment_id,omitempty"` // For comment likes
-	UserID    primitive.ObjectID  `json:"user_id" bson:"user_id"`
-	CreatedAt time.Time           `json:"created_at" bson:"created_at"`
+	ID               primitive.ObjectID  `json:"id" bson:"_id,omitempty"`
+	ProductID        *primitive.ObjectID `json:"product_id,omitempty" bson:"product_id,omitempty"`                 // For product likes
+	CommentID        *primitive.ObjectID `json:"comment_id,omitempty" bson:"comment_id,omitempty"`                 // For product comment likes
+	ProfileCommentID *primitive.ObjectID `json:"profile_comment_id,omitempty" bson:"profile_comment_id,omitempty"` // For profile comment likes
+	UserID           primitive.ObjectID  `json:"user_id" bson:"user_id"`
+	Type             string              `json:"type" bson:"type"` // "like" or "dislike"
+	CreatedAt        time.Time           `json:"created_at" bson:"created_at"`
 }
 
 

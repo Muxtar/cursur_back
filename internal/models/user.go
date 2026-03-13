@@ -72,10 +72,12 @@ type Contact struct {
 // target_type: "car_number" | "person_name" -> only target_value set, searchable only, no delete/notification.
 type ProfileComment struct {
 	ID           primitive.ObjectID  `json:"id" bson:"_id,omitempty"`
-	TargetType   string              `json:"target_type" bson:"target_type"`                       // "phone" | "car_number" | "person_name"
-	TargetValue  string              `json:"target_value" bson:"target_value"`                     // phone, plate, or name (normalized)
+	TargetType   string              `json:"target_type" bson:"target_type"`                           // "phone" | "car_number" | "person_name"
+	TargetValue  string              `json:"target_value" bson:"target_value"`                         // phone, plate, or name (normalized)
 	TargetUserID *primitive.ObjectID `json:"target_user_id,omitempty" bson:"target_user_id,omitempty"` // only when target_type == "phone"
-	CommenterID  primitive.ObjectID  `json:"-" bson:"commenter_id"`                                // not exposed in API
+	CommenterID  primitive.ObjectID  `json:"-" bson:"commenter_id"`                                    // not exposed in API
 	Text         string              `json:"text" bson:"text"`
+	LikeCount    int                 `json:"like_count" bson:"like_count"`
+	DislikeCount int                 `json:"dislike_count" bson:"dislike_count"`
 	CreatedAt    time.Time           `json:"created_at" bson:"created_at"`
 }

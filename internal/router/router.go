@@ -249,7 +249,14 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 		protected.DELETE("/products/:product_id/like", likeHandler.UnlikeProduct)
 		protected.POST("/comments/:comment_id/like", likeHandler.LikeComment)
 		protected.DELETE("/comments/:comment_id/like", likeHandler.UnlikeComment)
+		protected.POST("/comments/:comment_id/dislike", likeHandler.DislikeComment)
+		protected.DELETE("/comments/:comment_id/dislike", likeHandler.UndislikeComment)
 		protected.GET("/products/:product_id/likes", likeHandler.GetProductLikes)
+		// Profile comment reactions
+		protected.POST("/profile-comments/:comment_id/like", likeHandler.LikeProfileComment)
+		protected.DELETE("/profile-comments/:comment_id/like", likeHandler.UnlikeProfileComment)
+		protected.POST("/profile-comments/:comment_id/dislike", likeHandler.DislikeProfileComment)
+		protected.DELETE("/profile-comments/:comment_id/dislike", likeHandler.UndislikeProfileComment)
 
 		// Notification routes
 		notificationHandler := handlers.NewNotificationHandler(db)

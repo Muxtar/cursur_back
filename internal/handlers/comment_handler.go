@@ -140,9 +140,10 @@ func (h *CommentHandler) GetComments(c *gin.Context) {
 	// Populate user info and replies for each comment
 	type CommentWithUser struct {
 		models.Comment
-		User    gin.H                `json:"user"`
-		Replies []CommentWithUser    `json:"replies,omitempty"`
-		IsLiked bool                 `json:"is_liked"`
+		User       gin.H             `json:"user"`
+		Replies    []CommentWithUser `json:"replies,omitempty"`
+		IsLiked    bool              `json:"is_liked"`
+		IsDisliked bool              `json:"is_disliked"`
 	}
 
 	result := make([]CommentWithUser, 0, len(comments))
@@ -156,15 +157,23 @@ func (h *CommentHandler) GetComments(c *gin.Context) {
 		var user models.User
 		h.db.MongoDB.Collection("users").FindOne(context.Background(), bson.M{"_id": comment.UserID}).Decode(&user)
 
-		// Check if user liked this comment
+		// Check if user liked/disliked this comment
 		isLiked := false
+		isDisliked := false
 		if exists {
 			var like models.Like
 			err := h.db.MongoDB.Collection("likes").FindOne(
 				context.Background(),
-				bson.M{"comment_id": comment.ID, "user_id": userIDObj},
+				bson.M{"comment_id": comment.ID, "user_id": userIDObj, "type": "like"},
 			).Decode(&like)
 			isLiked = err == nil
+
+			var dislike models.Like
+			err = h.db.MongoDB.Collection("likes").FindOne(
+				context.Background(),
+				bson.M{"comment_id": comment.ID, "user_id": userIDObj, "type": "dislike"},
+			).Decode(&dislike)
+			isDisliked = err == nil
 		}
 
 		// Get replies
@@ -183,13 +192,21 @@ func (h *CommentHandler) GetComments(c *gin.Context) {
 			h.db.MongoDB.Collection("users").FindOne(context.Background(), bson.M{"_id": reply.UserID}).Decode(&replyUser)
 
 			replyIsLiked := false
+			replyIsDisliked := false
 			if exists {
 				var like models.Like
 				err := h.db.MongoDB.Collection("likes").FindOne(
 					context.Background(),
-					bson.M{"comment_id": reply.ID, "user_id": userIDObj},
+					bson.M{"comment_id": reply.ID, "user_id": userIDObj, "type": "like"},
 				).Decode(&like)
 				replyIsLiked = err == nil
+
+				var dislike models.Like
+				err = h.db.MongoDB.Collection("likes").FindOne(
+					context.Background(),
+					bson.M{"comment_id": reply.ID, "user_id": userIDObj, "type": "dislike"},
+				).Decode(&dislike)
+				replyIsDisliked = err == nil
 			}
 
 			repliesWithUser = append(repliesWithUser, CommentWithUser{
@@ -199,7 +216,8 @@ func (h *CommentHandler) GetComments(c *gin.Context) {
 					"username": replyUser.Username,
 					"avatar":   replyUser.Avatar,
 				},
-				IsLiked: replyIsLiked,
+				IsLiked:    replyIsLiked,
+				IsDisliked: replyIsDisliked,
 			})
 		}
 
@@ -210,8 +228,9 @@ func (h *CommentHandler) GetComments(c *gin.Context) {
 				"username": user.Username,
 				"avatar":   user.Avatar,
 			},
-			Replies: repliesWithUser,
-			IsLiked: isLiked,
+			Replies:    repliesWithUser,
+			IsLiked:    isLiked,
+			IsDisliked: isDisliked,
 		})
 	}
 
