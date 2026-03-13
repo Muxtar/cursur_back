@@ -259,6 +259,16 @@ func SetupRoutes(r *gin.Engine, db *database.Database, hub *websocket.Hub, cfg *
 			notifications.POST("/read", notificationHandler.MarkNotificationsRead)
 			notifications.GET("/unread-count", notificationHandler.GetUnreadCount)
 		}
+
+		// Story routes
+		storyHandler := handlers.NewStoryHandler(db)
+		stories := protected.Group("/stories")
+		{
+			stories.POST("", storyHandler.CreateStory)
+			stories.GET("", storyHandler.GetStoryFeed)
+			stories.GET("/user/:user_id", storyHandler.GetUserStories)
+			stories.DELETE("/:story_id", storyHandler.DeleteStory)
+		}
 	}
 
 	// WebSocket route

@@ -31,6 +31,7 @@ type Company struct {
 	UserID      primitive.ObjectID `json:"user_id" bson:"user_id"`
 	Name        string             `json:"name" bson:"name"`
 	Category    string             `json:"category" bson:"category"`
+	Position    string             `json:"position,omitempty" bson:"position,omitempty"` // job title, e.g. "Software Engineer", "CEO"
 	Description string             `json:"description,omitempty" bson:"description,omitempty"`
 	Website     string             `json:"website,omitempty" bson:"website,omitempty"`
 	CreatedAt   time.Time          `json:"created_at" bson:"created_at"`

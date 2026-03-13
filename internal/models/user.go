@@ -6,6 +6,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// SocialAccount holds a user's social media profile link.
+// Platform values: "instagram", "facebook", "linkedin", "twitter", "youtube", "tiktok", "other"
+type SocialAccount struct {
+	Platform string `json:"platform" bson:"platform"`
+	URL      string `json:"url" bson:"url"`
+	Username string `json:"username,omitempty" bson:"username,omitempty"`
+}
+
 type User struct {
 	ID              primitive.ObjectID `json:"id" bson:"_id,omitempty"`
 	PhoneNumber     string             `json:"phone_number" bson:"phone_number"`
@@ -27,6 +35,7 @@ type User struct {
 	UserType        string             `json:"user_type" bson:"user_type"`                                     // "normal" or "company"
 	CompanyName     string             `json:"company_name,omitempty" bson:"company_name,omitempty"`
 	CompanyCategory string             `json:"company_category,omitempty" bson:"company_category,omitempty"`
+	SocialAccounts  []SocialAccount    `json:"social_accounts,omitempty" bson:"social_accounts,omitempty"` // Instagram, Facebook, LinkedIn, etc.
 	LastActive      time.Time          `json:"last_active" bson:"last_active"`
 	CreatedAt       time.Time          `json:"created_at" bson:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at" bson:"updated_at"`
