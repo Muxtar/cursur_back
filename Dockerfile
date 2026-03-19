@@ -1,41 +1,33 @@
-# Build stage
-FROM golang:1.21-alpine AS builder
+# ── Build stage ────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache git
+# Copy package files
+COPY package.json package-lock.json* ./
 
-# Copy go mod files first (for better caching)
-# Note: If this fails, ensure Railway Root Directory is set to "back-end"
-COPY go.mod ./
-COPY go.sum* ./
+# Install production dependencies only
+RUN npm ci --omit=dev
 
-# Download dependencies
-RUN go mod download
+# ── Final stage ────────────────────────────────────────────────────────────────
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Create uploads directory
+RUN mkdir -p /app/uploads
+
+# Copy dependencies from build stage
+COPY --from=deps /app/node_modules ./node_modules
 
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./main.go
-
-# Final stage
-FROM alpine:latest
-
-RUN apk --no-cache add ca-certificates tzdata wget
-
-WORKDIR /root/
-
-# Copy the binary from builder
-COPY --from=builder /app/main .
-
-# Create uploads directory
-RUN mkdir -p /root/uploads
-
-# Expose port
+# Expose port (Railway sets PORT env var)
 EXPOSE 8080
 
-# Run the application
-CMD ["./main"]
+# Set NODE_ENV
+ENV NODE_ENV=production
 
+# Start server
+CMD ["node", "server.js"]

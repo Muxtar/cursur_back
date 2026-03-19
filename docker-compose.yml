@@ -1,122 +1,59 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: chat_postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: chat_app
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - chat_network
-
-  # MongoDB Database
-  mongodb:
-    image: mongo:7
-    container_name: chat_mongodb
-    environment:
-      MONGO_INITDB_DATABASE: chat_app
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - chat_network
-
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: chat_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - chat_network
-
-  # Backend Application
-  backend:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chat_backend
-    environment:
-      # Server
-      PORT: 8080
-      
-      # PostgreSQL (from postgres service)
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: chat_app
-      
-      # MongoDB (from mongodb service)
-      MONGODB_URI: mongodb://mongodb:27017
-      MONGODB_DB: chat_app
-      
-      # Redis (from redis service)
-      REDIS_ENABLED: "true"
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
-      
-      # JWT
-      JWT_SECRET: your-secret-key-change-in-production
-      JWT_EXPIRATION: 24h
-      
-      # File Upload
-      UPLOAD_DIR: /app/uploads
-      MAX_FILE_SIZE: 10485760
-      
-      # CORS
-      # CRITICAL: "*" is NOT compatible with credentials (cookies)
-      # Use specific origins separated by commas
-      CORS_ALLOWED_ORIGINS: "https://www.fridpass.com,http://localhost:3000"
-      CORS_ALLOW_CREDENTIALS: "true"
+    container_name: chat-backend2
+    restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017}
+      - MONGODB_DB=${MONGODB_DB:-chat_app}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRATION=${JWT_EXPIRATION:-24h}
+      - UPLOAD_DIR=/app/uploads
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-10485760}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      - TWILIO_ENABLED=${TWILIO_ENABLED:-false}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER:-}
+      - NODE_ENV=${NODE_ENV:-production}
     volumes:
-      - uploads_data:/app/uploads
+      - uploads:/app/uploads
     depends_on:
-      postgres:
-        condition: service_healthy
-      mongodb:
-        condition: service_healthy
-      redis:
+      mongo:
         condition: service_healthy
     networks:
-      - chat_network
+      - chat-network
+
+  mongo:
+    image: mongo:7
+    container_name: chat-mongo
     restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=chat_app
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - chat-network
 
 volumes:
-  postgres_data:
-  mongodb_data:
-  redis_data:
-  uploads_data:
+  uploads:
+  mongo-data:
 
 networks:
-  chat_network:
+  chat-network:
     driver: bridge
-
